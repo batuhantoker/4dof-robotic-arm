@@ -41,11 +41,11 @@ y = Lax·sin(q1) + Lb·sin(q1) + Lt·(sin(q1)·sin(q3)·sin(q4) - cos(q1)·(sin(
 z = Laz + Lt·(cos(q2)·cos(q4) - sin(q2)·sin(q4)·cos(q3))
 ```
 
-The full AUTOLEV source, including angular velocities, accelerations, and the analytical Jacobian, is in [`Kinematik/4DOF_kane.all`](Kinematik/4DOF_kane.all).
+The full AUTOLEV source, including angular velocities, accelerations, and the analytical Jacobian, is in [`kinematics/4DOF_kane.all`](kinematics/4DOF_kane.all).
 
 ## SimScape Simulation
 
-The MATLAB/Simulink SimScape Multibody model imports SolidWorks CAD geometry directly and provides:
+The matlab/Simulink SimScape Multibody model imports SolidWorks CAD geometry directly and provides:
 
 - **Position control** — Joint trajectory tracking (`Montaj1.slx`)
 - **Velocity analysis** — Joint velocity profiles (`Montaj1Hiz.slx`)
@@ -66,11 +66,11 @@ Highlights:
 ## Repository Structure
 
 ```
-├── CAD/                  # SolidWorks assembly and part files
-├── Figürler/             # Figures and diagrams
-├── Kinematik/            # AUTOLEV Kane's method formulation
+├── cad/                  # SolidWorks assembly and part files
+├── figures/             # Figures and diagrams
+├── kinematics/            # AUTOLEV Kane's method formulation
 │   └── 4DOF_kane.all     # Full symbolic kinematics source
-├── MATLAB/               # SimScape Multibody models
+├── matlab/               # SimScape Multibody models
 │   ├── Montaj1.slx       # Position control simulation
 │   ├── Montaj1Hiz.slx    # Velocity analysis
 │   ├── Montaj1tork.slx   # Torque computation
@@ -81,7 +81,7 @@ Highlights:
 │   ├── visualize.py      # 3D visualization & animation
 │   ├── demo.py           # Demo script
 │   └── requirements.txt  # Dependencies
-├── Simulasyonlar/        # Simulation results and data
+├── simulations/        # Simulation results and data
 └── README.md
 ```
 

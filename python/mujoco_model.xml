@@ -1,0 +1,104 @@
+<mujoco model="4dof_arm_zxzx">
+  <!--
+    4-DOF Serial Manipulator — MuJoCo Physics Model
+    
+    Matches Robot4DOF kinematic chain from robot.py:
+      Joint axes: Z-X-Z-X
+      q1: Z-axis rotation (base yaw)
+      q2: X-axis rotation (shoulder pitch)  
+      q3: Z-axis rotation (elbow yaw)
+      q4: X-axis rotation (wrist pitch)
+    
+    Position vectors (from Kane's method formulation):
+      P_O_P = Laz * A3      (base height along A's z-axis)
+      P_P_R = Lax * A1      (shoulder offset along A's x-axis)
+      P_R_S = Lb  * B1      (upper arm along B's x-axis)
+      P_S_G = Lt  * D3      (forearm to gripper along D's z-axis)
+    
+    Link lengths (mm → m):
+      Lax = 50mm  = 0.050m  (shoulder offset)
+      Laz = 55mm  = 0.055m  (base height)
+      Lb  = 100mm = 0.100m  (upper arm)
+      Lt  = 90mm  = 0.090m  (forearm/gripper)
+  -->
+  
+  <compiler angle="radian"/>
+  
+  <option timestep="0.002" gravity="0 0 -9.81"/>
+  
+  <default>
+    <joint damping="0.05" armature="0.01"/>
+    <geom rgba="0.8 0.3 0.1 1" margin="0.001"/>
+    <motor ctrlrange="-5 5" ctrllimited="true"/>
+  </default>
+
+  <worldbody>
+    <light diffuse=".8 .8 .8" pos="0 0 0.5" dir="0 0 -1"/>
+    <light diffuse=".4 .4 .4" pos="0.3 0.3 0.4" dir="-0.3 -0.3 -0.5"/>
+    <geom type="plane" size="0.5 0.5 0.01" rgba=".9 .9 .9 1"/>
+    
+    <!-- Base (fixed to ground) -->
+    <body name="base" pos="0 0 0">
+      <geom type="cylinder" size="0.025 0.01" rgba="0.3 0.3 0.3 1" mass="0.5"/>
+      
+      <!-- Joint 1: Z-axis rotation (base yaw) — at origin -->
+      <!-- After q1 rotation, we offset by Laz along z and Lax along x -->
+      <body name="link1" pos="0 0 0">
+        <joint name="q1" type="hinge" axis="0 0 1" range="-3.14159 3.14159"/>
+        <!-- Base column: Laz = 55mm vertical -->
+        <geom type="capsule" fromto="0 0 0 0 0 0.055" size="0.012" mass="0.3" rgba="0.3 0.3 0.7 1"/>
+        
+        <!-- Shoulder offset: Lax = 50mm along x at top of base column -->
+        <body name="shoulder_offset" pos="0 0 0.055">
+          <geom type="capsule" fromto="0 0 0 0.050 0 0" size="0.010" mass="0.1" rgba="0.3 0.3 0.7 1"/>
+          
+          <!-- Joint 2: X-axis rotation (shoulder pitch) — at end of offset -->
+          <body name="link2" pos="0.050 0 0">
+            <joint name="q2" type="hinge" axis="1 0 0" range="-1.5708 1.5708"/>
+            <!-- Upper arm: Lb = 100mm along x (in B-frame) -->
+            <geom type="capsule" fromto="0 0 0 0.100 0 0" size="0.008" mass="0.2" rgba="0.1 0.6 0.8 1"/>
+            
+            <!-- Joint 3: Z-axis rotation (elbow yaw) — at end of upper arm -->
+            <body name="link3" pos="0.100 0 0">
+              <joint name="q3" type="hinge" axis="0 0 1" range="-3.14159 3.14159"/>
+              <geom type="sphere" size="0.012" mass="0.05" rgba="0.8 0.8 0.2 1"/>
+              
+              <!-- Joint 4: X-axis rotation (wrist pitch) — same position as q3 -->
+              <body name="link4" pos="0 0 0">
+                <joint name="q4" type="hinge" axis="1 0 0" range="-1.5708 1.5708"/>
+                <!-- Forearm: Lt = 90mm along z (in D-frame) -->
+                <geom type="capsule" fromto="0 0 0 0 0 0.090" size="0.006" mass="0.1" rgba="0.1 0.8 0.3 1"/>
+                
+                <!-- End effector site at tip -->
+                <site name="end_effector" pos="0 0 0.090" size="0.008" rgba="1 0 0 1"/>
+              </body>
+            </body>
+          </body>
+        </body>
+      </body>
+    </body>
+    
+    <!-- Target marker (movable) -->
+    <body name="target" pos="0.15 0.05 0.15" mocap="true">
+      <geom type="sphere" size="0.008" rgba="1 0 0 0.5" contype="0" conaffinity="0"/>
+    </body>
+  </worldbody>
+  
+  <actuator>
+    <motor name="motor_q1" joint="q1" gear="5"/>
+    <motor name="motor_q2" joint="q2" gear="5"/>
+    <motor name="motor_q3" joint="q3" gear="3"/>
+    <motor name="motor_q4" joint="q4" gear="2"/>
+  </actuator>
+  
+  <sensor>
+    <jointpos name="pos_q1" joint="q1"/>
+    <jointpos name="pos_q2" joint="q2"/>
+    <jointpos name="pos_q3" joint="q3"/>
+    <jointpos name="pos_q4" joint="q4"/>
+    <jointvel name="vel_q1" joint="q1"/>
+    <jointvel name="vel_q2" joint="q2"/>
+    <jointvel name="vel_q3" joint="q3"/>
+    <jointvel name="vel_q4" joint="q4"/>
+  </sensor>
+</mujoco>

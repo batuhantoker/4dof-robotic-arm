@@ -1,0 +1,29 @@
+# MATLAB / Simulink
+slprj/
+*.slxc
+*.mexa64
+*.mexmaci64
+*.mexw64
+*.asv
+codegen/
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.egg-info/
+dist/
+build/
+.venv/
+venv/
+*.egg
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo

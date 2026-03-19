@@ -1,8 +1,96 @@
-# Kinematics dynamics and control of 4 DoF robotic arm through SimScape, and AUTOLEV
+# 4-DOF Robotic Arm — Kinematics, Dynamics & Control
 
-Ayrıntılı açıklamalara report.pdf ten veya medium makalemden ulaşabilirsiniz.
-https://medium.com/@tokerb/d-%C3%B6rt-eksenli-robot-kolunun-kontrol%C3%BC-e33744d69f49
+![MATLAB](https://img.shields.io/badge/MATLAB-R2022a-blue?logo=mathworks)
+![Simulink](https://img.shields.io/badge/Simulink-SimScape-orange?logo=mathworks)
+![SolidWorks](https://img.shields.io/badge/SolidWorks-CAD-red)
+![Python](https://img.shields.io/badge/Python-3.10+-green?logo=python)
 
-
+A complete kinematics, dynamics, and control study of a 4 degree-of-freedom serial manipulator — from symbolic Kane's method formulation through SimScape multibody simulation to a modern Python implementation with visualization.
 
 ![1_uHBulGzv38jcE_R2PtPH4Q](https://user-images.githubusercontent.com/55883119/210860480-249bc993-9c25-4c12-96b2-f342db412f1f.gif)
+
+## Architecture
+
+The manipulator is a 4-DOF serial robot arm with the following joint configuration:
+
+| Joint | Axis | Motion | Description |
+|-------|------|--------|-------------|
+| q1 | Z | Rotation | Base yaw |
+| q2 | X | Rotation | Shoulder pitch |
+| q3 | Z | Rotation | Elbow yaw |
+| q4 | X | Rotation | Wrist pitch |
+
+The alternating Z-X-Z-X joint pattern gives the arm a good balance of workspace coverage for a 4-DOF system. Link parameters (`Laz`, `Lax`, `Lb`, `Lt`) define the base height, shoulder offset, upper arm length, and forearm-to-gripper length respectively.
+
+## Kinematics — Kane's Method
+
+The kinematic formulation uses **Kane's method** via AUTOLEV, a symbolic multibody dynamics tool. The approach defines successive body-fixed reference frames connected by simple rotations:
+
+```
+N → A: Simprot(Z, q1)   Base rotation
+A → B: Simprot(X, q2)   Shoulder rotation
+B → C: Simprot(Z, q3)   Elbow rotation
+C → D: Simprot(X, q4)   Wrist rotation
+```
+
+The end-effector position is derived from the vector loop equation `P_O_G = Laz·A3 + Lax·A1 + Lb·B1 + Lt·D3`, yielding closed-form expressions for forward kinematics:
+
+```
+x = Lax·cos(q1) + Lb·cos(q1) + Lt·(sin(q3)·sin(q4)·cos(q1) + sin(q1)·(sin(q2)·cos(q4) + sin(q4)·cos(q2)·cos(q3)))
+y = Lax·sin(q1) + Lb·sin(q1) + Lt·(sin(q1)·sin(q3)·sin(q4) - cos(q1)·(sin(q2)·cos(q4) + sin(q4)·cos(q2)·cos(q3)))
+z = Laz + Lt·(cos(q2)·cos(q4) - sin(q2)·sin(q4)·cos(q3))
+```
+
+The full AUTOLEV source, including angular velocities, accelerations, and the analytical Jacobian, is in [`Kinematik/4DOF_kane.all`](Kinematik/4DOF_kane.all).
+
+## SimScape Simulation
+
+The MATLAB/Simulink SimScape Multibody model imports SolidWorks CAD geometry directly and provides:
+
+- **Position control** — Joint trajectory tracking (`Montaj1.slx`)
+- **Velocity analysis** — Joint velocity profiles (`Montaj1Hiz.slx`)
+- **Torque computation** — Required actuator torques (`Montaj1tork.slx`)
+
+CAD parts (links 0–3) are modeled in SolidWorks and exported as STEP files for SimScape import.
+
+## Python Implementation
+
+A standalone Python port provides forward/inverse kinematics, trajectory planning, and 3D visualization — no MATLAB license required. See [`python/README.md`](python/README.md) for quickstart.
+
+Highlights:
+- Forward kinematics matching the AUTOLEV formulation exactly
+- Numerical inverse kinematics via Jacobian-based Newton-Raphson
+- Cubic/quintic polynomial trajectory planning
+- Real-time 3D matplotlib visualization and workspace plotting
+
+## Repository Structure
+
+```
+├── CAD/                  # SolidWorks assembly and part files
+├── Figürler/             # Figures and diagrams
+├── Kinematik/            # AUTOLEV Kane's method formulation
+│   └── 4DOF_kane.all     # Full symbolic kinematics source
+├── MATLAB/               # SimScape Multibody models
+│   ├── Montaj1.slx       # Position control simulation
+│   ├── Montaj1Hiz.slx    # Velocity analysis
+│   ├── Montaj1tork.slx   # Torque computation
+│   └── *.SLDPRT/STEP     # CAD geometry for SimScape
+├── python/               # Modern Python implementation
+│   ├── robot.py          # Forward/inverse kinematics, Jacobian
+│   ├── trajectory.py     # Trajectory planning
+│   ├── visualize.py      # 3D visualization & animation
+│   ├── demo.py           # Demo script
+│   └── requirements.txt  # Dependencies
+├── Simulasyonlar/        # Simulation results and data
+└── README.md
+```
+
+## Further Reading
+
+Detailed derivation and results are documented in the accompanying article:
+
+📄 [4-Eksenli Robot Kolunun Kontrolü — Medium](https://medium.com/@tokerb/d-%C3%B6rt-eksenli-robot-kolunun-kontrol%C3%BC-e33744d69f49)
+
+## License
+
+Academic/personal project. Feel free to reference with attribution.

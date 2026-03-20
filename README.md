@@ -1,11 +1,14 @@
-# 4-DOF Robotic Arm — Kinematics, Dynamics & Control
+# 4-DOF Robotic Arm — Kinematics, Simulation & Validated Physics
 
 ![MATLAB](https://img.shields.io/badge/MATLAB-R2022a-blue?logo=mathworks)
 ![Simulink](https://img.shields.io/badge/Simulink-SimScape-orange?logo=mathworks)
-![SolidWorks](https://img.shields.io/badge/SolidWorks-CAD-red)
+![MuJoCo](https://img.shields.io/badge/MuJoCo-3.6-purple)
 ![Python](https://img.shields.io/badge/Python-3.10+-green?logo=python)
+![SolidWorks](https://img.shields.io/badge/SolidWorks-CAD-red)
 
-A complete kinematics, dynamics, and control study of a 4 degree-of-freedom serial manipulator — from symbolic Kane's method formulation through SimScape multibody simulation to a modern Python implementation with visualization.
+End-to-end study of a 4-DOF serial manipulator: symbolic kinematics (Kane's method), SimScape multibody dynamics, and a **validated MuJoCo physics simulation** with PD control and gravity compensation.
+
+**FK validation: 0.000 mm error** across all test configurations — analytical kinematics match physics engine exactly.
 
 ![1_uHBulGzv38jcE_R2PtPH4Q](https://user-images.githubusercontent.com/55883119/210860480-249bc993-9c25-4c12-96b2-f342db412f1f.gif)
 
@@ -53,6 +56,24 @@ The matlab/Simulink SimScape Multibody model imports SolidWorks CAD geometry dir
 
 CAD parts (links 0–3) are modeled in SolidWorks and exported as STEP files for SimScape import.
 
+## MuJoCo Physics Simulation
+
+A full physics simulation in [MuJoCo 3.6](https://mujoco.org/) validates the analytical kinematics against a rigid-body physics engine:
+
+- **MJCF model** matching exact link parameters (Laz=55mm, Lax=50mm, Lb=100mm, Lt=90mm)
+- **PD joint control** with gravity compensation
+- **Quintic trajectory planning** for smooth joint-space motion
+- **FK cross-validation**: analytical forward kinematics vs. MuJoCo body positions — **0.000 mm error** across 7 test configurations
+- **Headless rendering** via EGL for CI/server environments
+
+```bash
+cd python && pip install mujoco numpy && python mujoco_sim.py
+```
+
+Output: `arm_physics_sim.mp4` — rendered trajectory with real physics.
+
+See [`python/mujoco_model.xml`](python/mujoco_model.xml) for the MJCF model and [`python/mujoco_sim.py`](python/mujoco_sim.py) for the simulation driver.
+
 ## Python Implementation
 
 A standalone Python port provides forward/inverse kinematics, trajectory planning, and 3D visualization — no MATLAB license required. See [`python/README.md`](python/README.md) for quickstart.
@@ -75,11 +96,14 @@ Highlights:
 │   ├── Montaj1Hiz.slx    # Velocity analysis
 │   ├── Montaj1tork.slx   # Torque computation
 │   └── *.SLDPRT/STEP     # CAD geometry for SimScape
-├── python/               # Modern Python implementation
+├── python/               # Python implementation + MuJoCo simulation
 │   ├── robot.py          # Forward/inverse kinematics, Jacobian
 │   ├── trajectory.py     # Trajectory planning
 │   ├── visualize.py      # 3D visualization & animation
 │   ├── demo.py           # Demo script
+│   ├── mujoco_model.xml  # MJCF physics model
+│   ├── mujoco_sim.py     # MuJoCo simulation + FK validation
+│   ├── arm_physics_sim.mp4  # Rendered simulation output
 │   └── requirements.txt  # Dependencies
 ├── simulations/        # Simulation results and data
 └── README.md

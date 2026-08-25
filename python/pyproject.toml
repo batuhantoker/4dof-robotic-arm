@@ -37,7 +37,7 @@ four-dof-arm-mujoco = "four_dof_arm.cli:mujoco"
 where = ["src"]
 
 [tool.setuptools.package-data]
-four_dof_arm = ["mujoco_model.xml"]
+"four_dof_arm.mujoco_sim" = ["mujoco_model.xml"]
 
 [tool.pytest.ini_options]
 addopts = ["--strict-config", "--strict-markers"]

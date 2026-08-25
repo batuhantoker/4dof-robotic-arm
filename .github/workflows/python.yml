@@ -84,7 +84,7 @@ jobs:
 
           assert "matplotlib" not in sys.modules
           assert "mujoco" not in sys.modules
-          model = files(four_dof_arm).joinpath("mujoco_model.xml")
+          model = files(four_dof_arm).joinpath("mujoco_sim").joinpath("mujoco_model.xml")
           assert model.is_file()
           assert b"<mujoco" in model.read_bytes()
           PY

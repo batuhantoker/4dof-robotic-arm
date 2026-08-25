@@ -9,6 +9,11 @@ import pytest
 
 from four_dof_arm import mujoco_sim
 from four_dof_arm.mujoco_sim import ArmSim
+from four_dof_arm.mujoco_sim import cli as mujoco_cli
+from four_dof_arm.mujoco_sim import core as mujoco_core
+from four_dof_arm.mujoco_sim import rendering as mujoco_rendering
+from four_dof_arm.mujoco_sim import validation as mujoco_validation
+from four_dof_arm.trajectory import MultiPointTrajectory
 
 CUSTOM_MODEL = """
 <mujoco model="actuator_test">
@@ -104,7 +109,7 @@ def video_harness(monkeypatch: pytest.MonkeyPatch) -> _VideoHarness:
             stdin: int,
             stderr: object,
         ) -> None:
-            assert stdin == mujoco_sim.subprocess.PIPE
+            assert stdin == mujoco_rendering.subprocess.PIPE
             self.stdin = FakeStdin()
             self.running = True
             self.terminated = False
@@ -148,9 +153,9 @@ def video_harness(monkeypatch: pytest.MonkeyPatch) -> _VideoHarness:
         def close(self) -> None:
             self.closed = True
 
-    monkeypatch.setattr(mujoco_sim.shutil, "which", lambda _name: "/fake/ffmpeg")
-    monkeypatch.setattr(mujoco_sim.subprocess, "Popen", FakeProcess)
-    monkeypatch.setattr(mujoco_sim.mujoco, "Renderer", FakeRenderer)
+    monkeypatch.setattr(mujoco_rendering.shutil, "which", lambda _name: "/fake/ffmpeg")
+    monkeypatch.setattr(mujoco_rendering.subprocess, "Popen", FakeProcess)
+    monkeypatch.setattr(mujoco_rendering.mujoco, "Renderer", FakeRenderer)
     return harness
 
 
@@ -159,10 +164,27 @@ def sim() -> ArmSim:
     return ArmSim()
 
 
+def test_package_facade_exports_public_api() -> None:
+    assert mujoco_sim.__all__ == [
+        "ArmSim",
+        "MODEL_PATH",
+        "validate_fk",
+        "render_video",
+        "demo_trajectory",
+        "main",
+    ]
+    assert mujoco_sim.ArmSim is mujoco_core.ArmSim
+    assert mujoco_sim.MODEL_PATH is mujoco_core.MODEL_PATH
+    assert mujoco_sim.demo_trajectory is mujoco_cli.demo_trajectory
+    assert mujoco_sim.main is mujoco_cli.main
+    assert mujoco_sim.render_video is mujoco_rendering.render_video
+    assert mujoco_sim.validate_fk is mujoco_validation.validate_fk
+
+
 def test_fk_validation_matches_analytical_model(
     sim: ArmSim, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    assert mujoco_sim.validate_fk(sim)
+    assert mujoco_validation.validate_fk(sim)
     output = capsys.readouterr().out
     assert "Rot err (deg)" in output
     assert "ALL PASS" in output
@@ -188,14 +210,15 @@ def test_fk_validation_rejects_orientation_mismatch(
 
     monkeypatch.setattr(sim.robot, "forward_kinematics", mismatched_orientation)
 
-    assert not mujoco_sim.validate_fk(sim)
+    assert not mujoco_validation.validate_fk(sim)
     assert "SOME FAILED" in capsys.readouterr().out
 
 
 def test_initial_derived_state_matches_analytical_fk(sim: ArmSim) -> None:
-    analytical_position, _ = sim.robot.forward_kinematics(sim.q)
+    analytical_position, analytical_rotation = sim.robot.forward_kinematics(sim.q)
 
     np.testing.assert_allclose(sim.ee_pos, analytical_position / 1000.0, atol=1e-12)
+    np.testing.assert_allclose(sim.ee_rotation, analytical_rotation, atol=1e-12)
 
 
 def test_post_step_derived_state_matches_analytical_fk(sim: ArmSim) -> None:
@@ -209,7 +232,7 @@ def test_post_step_derived_state_matches_analytical_fk(sim: ArmSim) -> None:
     np.testing.assert_allclose(sim.ee_pos, analytical_position / 1000.0, atol=1e-12)
 
     post_step_bias = sim.data.qfrc_bias[: sim.n_joints].copy()
-    mujoco_sim.mujoco.mj_forward(sim.model, sim.data)
+    mujoco_core.mujoco.mj_forward(sim.model, sim.data)
     np.testing.assert_allclose(post_step_bias, sim.data.qfrc_bias[: sim.n_joints])
 
 
@@ -487,7 +510,7 @@ def test_render_video_uses_zero_based_unique_frames_and_preserves_duration(
     output = tmp_path / "video.mp4"
     trajectory = np.vstack([np.zeros(4), np.ones(4)])
 
-    result = mujoco_sim.render_video(
+    result = mujoco_rendering.render_video(
         fake_sim,
         np.array([0.0, duration]),
         trajectory,
@@ -524,7 +547,7 @@ def test_render_video_applies_piecewise_targets_through_final_simulation_step(
         ]
     )
 
-    mujoco_sim.render_video(
+    mujoco_rendering.render_video(
         fake_sim,
         timestamps,
         trajectory,
@@ -558,10 +581,10 @@ def test_render_video_reports_missing_ffmpeg_before_allocating_resources(
     video_harness: _VideoHarness,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.setattr(mujoco_sim.shutil, "which", lambda _name: None)
+    monkeypatch.setattr(mujoco_rendering.shutil, "which", lambda _name: None)
 
     with pytest.raises(FileNotFoundError, match="ffmpeg executable"):
-        mujoco_sim.render_video(
+        mujoco_rendering.render_video(
             _FakeVideoSim(),
             np.array([0.0, 0.1]),
             np.zeros((2, 4)),
@@ -580,7 +603,7 @@ def test_render_video_reports_ffmpeg_nonzero_and_closes_resources(
     video_harness.stderr = b"encoder failed"
 
     with pytest.raises(RuntimeError, match="status 7: encoder failed"):
-        mujoco_sim.render_video(
+        mujoco_rendering.render_video(
             _FakeVideoSim(),
             np.array([0.0, 0.1]),
             np.zeros((2, 4)),
@@ -603,7 +626,7 @@ def test_render_video_reports_broken_pipe_and_closes_resources(
     video_harness.stderr = b"pipe closed"
 
     with pytest.raises(RuntimeError, match="status 1: pipe closed"):
-        mujoco_sim.render_video(
+        mujoco_rendering.render_video(
             _FakeVideoSim(),
             np.array([0.0, 0.1]),
             np.zeros((2, 4)),
@@ -624,7 +647,7 @@ def test_render_video_terminates_process_when_rendering_fails(
     video_harness.render_error = RuntimeError("render failed")
 
     with pytest.raises(RuntimeError, match="render failed"):
-        mujoco_sim.render_video(
+        mujoco_rendering.render_video(
             _FakeVideoSim(),
             np.array([0.0, 0.1]),
             np.zeros((2, 4)),
@@ -643,25 +666,25 @@ def test_render_video_terminates_process_when_rendering_fails(
 def test_main_returns_failure_status_when_fk_validation_fails(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.setattr(mujoco_sim, "ArmSim", object)
-    monkeypatch.setattr(mujoco_sim, "validate_fk", lambda _sim: False)
+    monkeypatch.setattr(mujoco_cli, "ArmSim", object)
+    monkeypatch.setattr(mujoco_cli, "validate_fk", lambda _sim: False)
     monkeypatch.setattr(sys, "argv", ["mujoco_sim.py"])
 
-    assert mujoco_sim.main() == 1
+    assert mujoco_cli.main() == 1
 
 
 def test_main_default_runs_real_simulation_with_short_trajectory(
     monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    trajectory = mujoco_sim.MultiPointTrajectory(
+    trajectory = MultiPointTrajectory(
         [np.zeros(4), np.array([0.01, -0.02, 0.03, -0.04])],
         [0.004],
         n_points_per_segment=3,
         method="quintic",
     )
-    monkeypatch.setattr(mujoco_sim, "demo_trajectory", lambda: trajectory)
+    monkeypatch.setattr(mujoco_cli, "demo_trajectory", lambda: trajectory)
 
-    assert mujoco_sim.main([]) == 0
+    assert mujoco_cli.main([]) == 0
 
     output = capsys.readouterr().out
     assert "Result: ALL PASS" in output
@@ -678,7 +701,7 @@ def test_main_video_forwards_demo_trajectory_and_output(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    expected = mujoco_sim.demo_trajectory()
+    expected = mujoco_cli.demo_trajectory()
     calls: list[tuple[np.ndarray, np.ndarray, str | Path]] = []
 
     def capture_render_video(
@@ -697,10 +720,10 @@ def test_main_video_forwards_demo_trajectory_and_output(
         )
         return str(output_path)
 
-    monkeypatch.setattr(mujoco_sim, "render_video", capture_render_video)
+    monkeypatch.setattr(mujoco_cli, "render_video", capture_render_video)
     output_path = tmp_path / "wired-video.mp4"
 
-    assert mujoco_sim.main(["--video", "--output", str(output_path)]) == 0
+    assert mujoco_cli.main(["--video", "--output", str(output_path)]) == 0
 
     assert len(calls) == 1
     timestamps, q_trajectory, forwarded_output_path = calls[0]

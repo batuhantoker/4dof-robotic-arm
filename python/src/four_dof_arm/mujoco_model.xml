@@ -2,7 +2,7 @@
   <!--
     4-DOF Serial Manipulator — MuJoCo Physics Model
     
-    Matches Robot4DOF kinematic chain from robot.py:
+    Matches Robot4DOF kinematic chain from four_dof_arm.robot:
       Joint axes: Z-X-Z-X
       q1: Z-axis rotation (base yaw)
       q2: X-axis rotation (shoulder pitch)  

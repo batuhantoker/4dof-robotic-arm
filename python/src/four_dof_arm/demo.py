@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """
 Demo: 4-DOF Robotic Arm — Forward/Inverse Kinematics & Trajectory Planning
 
@@ -11,14 +10,30 @@ Demonstrates the full pipeline:
 
 from __future__ import annotations
 
+import argparse
+from pathlib import Path
+
+import matplotlib.pyplot as plt
 import numpy as np
 
-from robot import Robot4DOF
-from trajectory import JointTrajectory, CartesianTrajectory, MultiPointTrajectory
-from visualize import plot_arm, animate_trajectory, plot_joint_angles, plot_workspace
+from .robot import Robot4DOF
+from .trajectory import JointTrajectory, MultiPointTrajectory
+from .visualize import animate_trajectory, plot_arm, plot_joint_angles, plot_workspace
+
+_WORKSPACE_SAMPLES = 15_000
 
 
-def main() -> None:
+def main(
+    *,
+    show: bool = False,
+    output_dir: str | Path | None = None,
+    seed: int = 0,
+) -> None:
+    output_path = Path(output_dir) if output_dir is not None else None
+    if output_path is not None:
+        output_path.mkdir(parents=True, exist_ok=True)
+    rng = np.random.default_rng(seed)
+
     # --- Robot Setup ---
     # Link lengths from CAD/SimScape model (mm)
     robot = Robot4DOF(Lax=50.0, Laz=55.0, Lb=100.0, Lt=90.0)
@@ -40,7 +55,7 @@ def main() -> None:
     }
 
     for name, q in test_configs.items():
-        pos, R = robot.forward_kinematics(q)
+        pos, _ = robot.forward_kinematics(q)
         print(f"  {name}:")
         print(f"    q = [{', '.join(f'{np.degrees(a):6.1f}°' for a in q)}]")
         print(f"    pos = ({pos[0]:7.2f}, {pos[1]:7.2f}, {pos[2]:7.2f}) mm")
@@ -67,10 +82,12 @@ def main() -> None:
     # Test: reach a known point
     q_known = np.deg2rad([20.0, 30.0, -15.0, 10.0])
     target_pos, _ = robot.forward_kinematics(q_known)
-    print(f"  Target: ({target_pos[0]:.2f}, {target_pos[1]:.2f}, {target_pos[2]:.2f}) mm")
+    print(
+        f"  Target: ({target_pos[0]:.2f}, {target_pos[1]:.2f}, {target_pos[2]:.2f}) mm"
+    )
     print(f"  (from q = [{', '.join(f'{np.degrees(a):.1f}°' for a in q_known)}])")
 
-    q_sol, success, error = robot.inverse_kinematics_multi(target_pos)
+    q_sol, success, error = robot.inverse_kinematics_multi(target_pos, rng=rng)
     print(f"  Solution: [{', '.join(f'{np.degrees(a):6.1f}°' for a in q_sol)}]")
     print(f"  Error: {error:.4f} mm | Success: {success}")
 
@@ -82,9 +99,16 @@ def main() -> None:
     # --- 4. Static Arm Plot ---
     print("Plotting arm in complex pose...")
     q_demo = np.deg2rad([30.0, 45.0, -30.0, 20.0])
-    fig = plot_arm(robot, q_demo, title="4-DOF Arm — Complex Pose", show=False)
-    fig.savefig("arm_pose.png", dpi=150, bbox_inches="tight")
-    print("  Saved: arm_pose.png")
+    arm_path = output_path / "arm_pose.png" if output_path is not None else None
+    fig = plot_arm(
+        robot,
+        q_demo,
+        title="4-DOF Arm — Complex Pose",
+        show=show,
+        save_path=arm_path,
+    )
+    if arm_path is not None:
+        print(f"  Saved: {arm_path}")
     plt.close(fig)
 
     # --- 5. Joint Trajectory ---
@@ -93,8 +117,19 @@ def main() -> None:
     q_end = np.deg2rad([45.0, 30.0, -60.0, 20.0])
     traj = JointTrajectory(q_start, q_end, duration=3.0, n_points=150, method="quintic")
 
-    fig = plot_joint_angles(traj.t, traj.q, traj.qd, title="Quintic Joint Trajectory", save_path="joint_trajectory.png")
-    print("  Saved: joint_trajectory.png")
+    joint_path = (
+        output_path / "joint_trajectory.png" if output_path is not None else None
+    )
+    fig = plot_joint_angles(
+        traj.t,
+        traj.q,
+        traj.qd,
+        title="Quintic Joint Trajectory",
+        save_path=joint_path,
+        show=show,
+    )
+    if joint_path is not None:
+        print(f"  Saved: {joint_path}")
     plt.close(fig)
 
     # --- 6. Multi-point Trajectory Animation ---
@@ -110,25 +145,57 @@ def main() -> None:
     multi_traj = MultiPointTrajectory(waypoints, durations, n_points_per_segment=60)
 
     print(f"  Total duration: {multi_traj.duration:.1f}s, {multi_traj.n_points} points")
-    print("  Animating... (close window to continue)")
-    animate_trajectory(robot, multi_traj.q, interval=30, trail=True)
+    if show:
+        print("  Animating... (close window to continue)")
+        animate_trajectory(robot, multi_traj.q, interval=30, trail=True, show=True)
+        plt.close()
+    else:
+        print("  Animation skipped (use --show to display it)")
 
     # --- 7. Workspace ---
     print("\nPlotting workspace...")
-    plot_workspace(robot, n_samples=15000, save_path="workspace.png")
-    print("  Saved: workspace.png")
+    workspace_path = output_path / "workspace.png" if output_path is not None else None
+    fig = plot_workspace(
+        robot,
+        n_samples=_WORKSPACE_SAMPLES,
+        save_path=workspace_path,
+        show=show,
+        rng=rng,
+    )
+    if workspace_path is not None:
+        print(f"  Saved: {workspace_path}")
+    plt.close(fig)
 
     print("\nDone.")
 
 
+def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
+    parser = argparse.ArgumentParser(description=__doc__.splitlines()[1])
+    parser.add_argument(
+        "--show",
+        action="store_true",
+        help="display plots and animation interactively",
+    )
+    parser.add_argument(
+        "--output-dir",
+        type=Path,
+        help="directory for PNG outputs; no files are written when omitted",
+    )
+    parser.add_argument(
+        "--seed",
+        type=int,
+        default=0,
+        help="random seed for IK and workspace sampling (default: 0)",
+    )
+    return parser.parse_args(argv)
+
+
+def cli(argv: list[str] | None = None) -> int:
+    """Run the command-line demo."""
+    args = _parse_args(argv)
+    main(show=args.show, output_dir=args.output_dir, seed=args.seed)
+    return 0
+
+
 if __name__ == "__main__":
-    import os
-
-    # Use non-interactive backend if no display available
-    if not os.environ.get("DISPLAY") and not os.environ.get("WAYLAND_DISPLAY"):
-        import matplotlib
-        matplotlib.use("Agg")
-
-    import matplotlib.pyplot as plt
-
-    main()
+    raise SystemExit(cli())

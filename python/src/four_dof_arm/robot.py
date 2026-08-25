@@ -20,27 +20,82 @@ from __future__ import annotations
 
 import numpy as np
 from numpy.typing import NDArray
-from scipy.optimize import minimize
+
+
+def _as_finite_vector(value: object, size: int, name: str) -> NDArray[np.float64]:
+    try:
+        array = np.asarray(value, dtype=np.float64)
+    except (TypeError, ValueError, OverflowError) as exc:
+        raise ValueError(f"{name} must be a finite vector of shape ({size},)") from exc
+
+    if array.shape != (size,) or not np.all(np.isfinite(array)):
+        raise ValueError(f"{name} must be a finite vector of shape ({size},)")
+    return array
+
+
+def _finite_scalar(value: object, name: str, *, positive: bool = False) -> float:
+    qualifier = "positive finite" if positive else "finite"
+    if isinstance(value, (bool, np.bool_)) or (
+        isinstance(value, np.ndarray) and np.issubdtype(value.dtype, np.bool_)
+    ):
+        raise ValueError(f"{name} must be a {qualifier} scalar")
+
+    try:
+        array = np.asarray(value, dtype=np.float64)
+    except (TypeError, ValueError, OverflowError) as exc:
+        raise ValueError(f"{name} must be a {qualifier} scalar") from exc
+
+    if array.shape != ():
+        raise ValueError(f"{name} must be a {qualifier} scalar")
+
+    result = float(array)
+    if not np.isfinite(result) or (positive and result <= 0.0):
+        raise ValueError(f"{name} must be a {qualifier} scalar")
+    return result
+
+
+def _positive_integer(value: object, name: str) -> int:
+    if (
+        isinstance(value, (bool, np.bool_))
+        or not isinstance(value, (int, np.integer))
+        or value < 1
+    ):
+        raise ValueError(f"{name} must be a positive integer")
+    return int(value)
+
+
+def _random_generator(
+    rng: np.random.Generator | None,
+) -> np.random.Generator:
+    if rng is None:
+        return np.random.default_rng()
+    if not isinstance(rng, np.random.Generator):
+        raise TypeError("rng must be a numpy.random.Generator")
+    return rng
 
 
 def _rot_z(theta: float) -> NDArray[np.float64]:
     """Rotation matrix about Z-axis (Simprot axis 3)."""
     c, s = np.cos(theta), np.sin(theta)
-    return np.array([
-        [c, -s, 0.0],
-        [s,  c, 0.0],
-        [0.0, 0.0, 1.0],
-    ])
+    return np.array(
+        [
+            [c, -s, 0.0],
+            [s, c, 0.0],
+            [0.0, 0.0, 1.0],
+        ]
+    )
 
 
 def _rot_x(theta: float) -> NDArray[np.float64]:
     """Rotation matrix about X-axis (Simprot axis 1)."""
     c, s = np.cos(theta), np.sin(theta)
-    return np.array([
-        [1.0, 0.0, 0.0],
-        [0.0,  c, -s],
-        [0.0,  s,  c],
-    ])
+    return np.array(
+        [
+            [1.0, 0.0, 0.0],
+            [0.0, c, -s],
+            [0.0, s, c],
+        ]
+    )
 
 
 class Robot4DOF:
@@ -67,18 +122,20 @@ class Robot4DOF:
         Lb: float = 100.0,
         Lt: float = 90.0,
     ) -> None:
-        self.Lax = Lax
-        self.Laz = Laz
-        self.Lb = Lb
-        self.Lt = Lt
+        self.Lax = _finite_scalar(Lax, "Lax", positive=True)
+        self.Laz = _finite_scalar(Laz, "Laz", positive=True)
+        self.Lb = _finite_scalar(Lb, "Lb", positive=True)
+        self.Lt = _finite_scalar(Lt, "Lt", positive=True)
 
         # Joint limits (radians) — conservative defaults
-        self.joint_limits = np.array([
-            [-np.pi, np.pi],       # q1: full base rotation
-            [-np.pi / 2, np.pi / 2],  # q2: shoulder ±90°
-            [-np.pi, np.pi],       # q3: full elbow rotation
-            [-np.pi / 2, np.pi / 2],  # q4: wrist ±90°
-        ])
+        self.joint_limits = np.array(
+            [
+                [-np.pi, np.pi],  # q1: full base rotation
+                [-np.pi / 2, np.pi / 2],  # q2: shoulder ±90°
+                [-np.pi, np.pi],  # q3: full elbow rotation
+                [-np.pi / 2, np.pi / 2],  # q4: wrist ±90°
+            ]
+        )
 
     @property
     def n_joints(self) -> int:
@@ -86,13 +143,19 @@ class Robot4DOF:
 
     def rotation_matrices(
         self, q: NDArray[np.float64]
-    ) -> tuple[NDArray[np.float64], NDArray[np.float64], NDArray[np.float64], NDArray[np.float64]]:
+    ) -> tuple[
+        NDArray[np.float64],
+        NDArray[np.float64],
+        NDArray[np.float64],
+        NDArray[np.float64],
+    ]:
         """Compute individual rotation matrices N_A, A_B, B_C, C_D.
 
         Returns
         -------
         R_NA, R_AB, R_BC, R_CD : tuple of (3,3) arrays
         """
+        q = _as_finite_vector(q, self.n_joints, "q")
         return _rot_z(q[0]), _rot_x(q[1]), _rot_z(q[2]), _rot_x(q[3])
 
     def forward_kinematics(
@@ -112,6 +175,7 @@ class Robot4DOF:
         R_ND : array of shape (3, 3)
             Rotation matrix from base (N) to end-effector (D) frame.
         """
+        q = _as_finite_vector(q, self.n_joints, "q")
         q1, q2, q3, q4 = q
         c1, s1 = np.cos(q1), np.sin(q1)
         c2, s2 = np.cos(q2), np.sin(q2)
@@ -119,12 +183,16 @@ class Robot4DOF:
         c4, s4 = np.cos(q4), np.sin(q4)
 
         # From AUTOLEV loop equation (lines 141-145 of 4DOF_kane.all)
-        x = (self.Lax * c1
-             + self.Lb * c1
-             + self.Lt * (s3 * s4 * c1 + s1 * (s2 * c4 + s4 * c2 * c3)))
-        y = (self.Lax * s1
-             + self.Lb * s1
-             + self.Lt * (s1 * s3 * s4 - c1 * (s2 * c4 + s4 * c2 * c3)))
+        x = (
+            self.Lax * c1
+            + self.Lb * c1
+            + self.Lt * (s3 * s4 * c1 + s1 * (s2 * c4 + s4 * c2 * c3))
+        )
+        y = (
+            self.Lax * s1
+            + self.Lb * s1
+            + self.Lt * (s1 * s3 * s4 - c1 * (s2 * c4 + s4 * c2 * c3))
+        )
         z = self.Laz + self.Lt * (c2 * c4 - s2 * s4 * c3)
 
         position = np.array([x, y, z])
@@ -135,9 +203,7 @@ class Robot4DOF:
 
         return position, R_ND
 
-    def joint_positions(
-        self, q: NDArray[np.float64]
-    ) -> list[NDArray[np.float64]]:
+    def joint_positions(self, q: NDArray[np.float64]) -> list[NDArray[np.float64]]:
         """Compute positions of all joints and end-effector for visualization.
 
         Returns
@@ -145,6 +211,7 @@ class Robot4DOF:
         points : list of 5 arrays of shape (3,)
             [origin, shoulder_top, shoulder_offset, elbow, end_effector]
         """
+        q = _as_finite_vector(q, self.n_joints, "q")
         R_NA = _rot_z(q[0])
         R_NB = R_NA @ _rot_x(q[1])
         R_ND = R_NB @ _rot_z(q[2]) @ _rot_x(q[3])
@@ -158,10 +225,10 @@ class Robot4DOF:
         d3 = R_ND[:, 2]
 
         origin = np.zeros(3)
-        p_shoulder_top = origin + self.Laz * a3           # P: top of base column
-        p_shoulder = p_shoulder_top + self.Lax * a1       # R: shoulder offset
-        p_elbow = p_shoulder + self.Lb * b1               # S: elbow
-        p_ee = p_elbow + self.Lt * d3                     # G: gripper
+        p_shoulder_top = origin + self.Laz * a3  # P: top of base column
+        p_shoulder = p_shoulder_top + self.Lax * a1  # R: shoulder offset
+        p_elbow = p_shoulder + self.Lb * b1  # S: elbow
+        p_ee = p_elbow + self.Lt * d3  # G: gripper
 
         return [origin, p_shoulder_top, p_shoulder, p_elbow, p_ee]
 
@@ -182,6 +249,8 @@ class Robot4DOF:
         J : array of shape (3, 4)
             Positional Jacobian dp/dq.
         """
+        q = _as_finite_vector(q, self.n_joints, "q")
+        eps = _finite_scalar(eps, "eps", positive=True)
         J = np.zeros((3, 4))
         p0, _ = self.forward_kinematics(q)
         for i in range(4):
@@ -191,9 +260,7 @@ class Robot4DOF:
             J[:, i] = (p_pert - p0) / eps
         return J
 
-    def jacobian_analytical(
-        self, q: NDArray[np.float64]
-    ) -> NDArray[np.float64]:
+    def jacobian_analytical(self, q: NDArray[np.float64]) -> NDArray[np.float64]:
         """Compute the analytical positional Jacobian from AUTOLEV derivatives.
 
         Matches Zeroconfig rows 1-3 from 4DOF_kane.all (lines 154-167),
@@ -208,16 +275,19 @@ class Robot4DOF:
         -------
         J : array of shape (3, 4)
         """
+        q = _as_finite_vector(q, self.n_joints, "q")
         q1, q2, q3, q4 = q
         c1, s1 = np.cos(q1), np.sin(q1)
         c2, s2 = np.cos(q2), np.sin(q2)
         c3, s3 = np.cos(q3), np.sin(q3)
         c4, s4 = np.cos(q4), np.sin(q4)
 
-        Lax, Lb, Laz, Lt = self.Lax, self.Lb, self.Laz, self.Lt
+        Lax, Lb, Lt = self.Lax, self.Lb, self.Lt
 
         # dx/dq (negate AUTOLEV Zeroconfig row 1)
-        J11 = -(Lax * s1 + Lb * s1 + Lt * (s1 * s3 * s4 - c1 * (s2 * c4 + s4 * c2 * c3)))
+        J11 = -(
+            Lax * s1 + Lb * s1 + Lt * (s1 * s3 * s4 - c1 * (s2 * c4 + s4 * c2 * c3))
+        )
         J12 = Lt * s1 * (c2 * c4 - s2 * s4 * c3)
         J13 = Lt * s4 * (c1 * c3 - s1 * s3 * c2)
         J14 = Lt * (s3 * c1 * c4 - s1 * (s2 * s4 - c2 * c3 * c4))
@@ -234,11 +304,16 @@ class Robot4DOF:
         J33 = Lt * s2 * s3 * s4
         J34 = -Lt * (s4 * c2 + s2 * c3 * c4)
 
-        return np.array([
-            [J11, J12, J13, J14],
-            [J21, J22, J23, J24],
-            [J31, J32, J33, J34],
-        ])
+        return np.array(
+            [
+                [J11, J12, J13, J14],
+                [J21, J22, J23, J24],
+                [J31, J32, J33, J34],
+            ]
+        )
+
+    def _limit_configuration(self, q: NDArray[np.float64]) -> NDArray[np.float64]:
+        return np.clip(q, self.joint_limits[:, 0], self.joint_limits[:, 1])
 
     def inverse_kinematics(
         self,
@@ -272,35 +347,61 @@ class Robot4DOF:
         error : float
             Final position error norm in mm.
         """
-        q = q0.copy() if q0 is not None else np.zeros(4)
-        target = np.asarray(target, dtype=np.float64)
+        target = _as_finite_vector(target, 3, "target")
+        q: NDArray[np.float64]
+        if q0 is None:
+            q = np.zeros(self.n_joints, dtype=np.float64)
+        else:
+            q = _as_finite_vector(q0, self.n_joints, "q0")
+        q = self._limit_configuration(q)
+        tol = _finite_scalar(tol, "tol", positive=True)
+        max_iter = _positive_integer(max_iter, "max_iter")
+        damping = _finite_scalar(damping, "damping", positive=True)
+        used_stagnation_escape = False
 
         for _ in range(max_iter):
             pos, _ = self.forward_kinematics(q)
             error_vec = target - pos
-            error_norm = np.linalg.norm(error_vec)
+            error_norm = float(np.linalg.norm(error_vec))
 
-            if error_norm < tol:
+            if error_norm < tol and np.all(
+                (q >= self.joint_limits[:, 0]) & (q <= self.joint_limits[:, 1])
+            ):
                 return q, True, error_norm
 
             J = self.jacobian_analytical(q)
             # Damped least-squares: dq = J^T (J J^T + λ²I)^{-1} e
-            JJT = J @ J.T + (damping ** 2) * np.eye(3)
+            JJT = J @ J.T + (damping**2) * np.eye(3)
             dq = J.T @ np.linalg.solve(JJT, error_vec)
+            # Large unconstrained steps can pin the bounded solver at hard stops.
+            dq = np.clip(dq, -0.5, 0.5)
 
-            q = q + dq
-            # Wrap to [-π, π]
-            q = np.arctan2(np.sin(q), np.cos(q))
+            next_q = self._limit_configuration(q + dq)
+            if np.linalg.norm(next_q - q, ord=np.inf) <= 1e-12:
+                if used_stagnation_escape:
+                    break
+                # q=0 cannot move toward exact x-z plane errors at first order.
+                q = self._limit_configuration(q + np.array([0.0, 0.0, 0.1, 0.1]))
+                used_stagnation_escape = True
+            else:
+                q = next_q
 
         pos, _ = self.forward_kinematics(q)
         error_norm = float(np.linalg.norm(target - pos))
-        return q, error_norm < tol, error_norm
+        within_limits = np.all(
+            (q >= self.joint_limits[:, 0]) & (q <= self.joint_limits[:, 1])
+        )
+        return q, bool(error_norm < tol and within_limits), error_norm
 
     def inverse_kinematics_multi(
         self,
         target: NDArray[np.float64],
         n_restarts: int = 8,
-        **kwargs,
+        q0: NDArray[np.float64] | None = None,
+        rng: np.random.Generator | None = None,
+        tol: float = 1e-4,
+        max_iter: int = 200,
+        damping: float = 0.1,
     ) -> tuple[NDArray[np.float64], bool, float]:
         """IK with multiple random restarts to escape local minima.
 
@@ -309,38 +410,52 @@ class Robot4DOF:
         target : array of shape (3,)
         n_restarts : int
             Number of random initial guesses to try.
-        **kwargs
-            Passed to inverse_kinematics.
+        q0 : array of shape (4,) or None
+            Initial guess for the first attempt.
+        rng : numpy.random.Generator or None
+            Random generator used for subsequent attempts.
+        tol, max_iter, damping
+            Solver options passed to inverse_kinematics.
 
         Returns
         -------
-        Best solution from all restarts.
+        first successful solution is returned; if all attempts fail, the lowest-error failure is returned.
         """
-        best_q = np.zeros(4)
+        n_restarts = _positive_integer(n_restarts, "n_restarts")
+        rng = _random_generator(rng)
+        best_q: NDArray[np.float64] = np.zeros(4, dtype=np.float64)
         best_error = np.inf
         best_success = False
 
         for i in range(n_restarts):
             if i == 0:
-                q0 = np.zeros(4)
+                initial_q = q0
             else:
-                q0 = np.random.uniform(
+                initial_q = rng.uniform(
                     self.joint_limits[:, 0],
                     self.joint_limits[:, 1],
                 )
 
-            q, success, error = self.inverse_kinematics(target, q0=q0, **kwargs)
-
-            if error < best_error:
-                best_q, best_success, best_error = q, success, error
+            q, success, error = self.inverse_kinematics(
+                target,
+                q0=initial_q,
+                tol=tol,
+                max_iter=max_iter,
+                damping=damping,
+            )
 
             if success:
-                break
+                return q, True, error
+
+            if error < best_error:
+                best_q, best_success, best_error = q, False, error
 
         return best_q, best_success, best_error
 
-    def workspace_boundary(
-        self, n_samples: int = 5000
+    def sample_workspace(
+        self,
+        n_samples: int = 5000,
+        rng: np.random.Generator | None = None,
     ) -> NDArray[np.float64]:
         """Sample the reachable workspace by random joint configurations.
 
@@ -348,15 +463,19 @@ class Robot4DOF:
         ----------
         n_samples : int
             Number of random joint configurations.
+        rng : numpy.random.Generator or None
+            Random generator used for sampling.
 
         Returns
         -------
         points : array of shape (n_samples, 3)
             Reachable end-effector positions.
         """
+        n_samples = _positive_integer(n_samples, "n_samples")
+        rng = _random_generator(rng)
         points = np.zeros((n_samples, 3))
         for i in range(n_samples):
-            q = np.random.uniform(
+            q = rng.uniform(
                 self.joint_limits[:, 0],
                 self.joint_limits[:, 1],
             )
@@ -364,7 +483,4 @@ class Robot4DOF:
         return points
 
     def __repr__(self) -> str:
-        return (
-            f"Robot4DOF(Lax={self.Lax}, Laz={self.Laz}, "
-            f"Lb={self.Lb}, Lt={self.Lt})"
-        )
+        return f"Robot4DOF(Lax={self.Lax}, Laz={self.Laz}, Lb={self.Lb}, Lt={self.Lt})"

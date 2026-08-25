@@ -2,6 +2,12 @@ import numpy as np
 import pytest
 
 from four_dof_arm import Robot4DOF
+from four_dof_arm.robot import Robot4DOF as FacadeRobot4DOF
+from four_dof_arm.robot.model import Robot4DOF as ModelRobot4DOF
+
+
+def test_robot_facade_exports_model_class() -> None:
+    assert Robot4DOF is FacadeRobot4DOF is ModelRobot4DOF
 
 
 def test_forward_kinematics_matches_joint_chain() -> None:

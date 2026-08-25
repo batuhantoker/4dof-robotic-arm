@@ -1,6 +1,8 @@
 import numpy as np
 import pytest
 
+import four_dof_arm
+import four_dof_arm.trajectory as trajectory_facade
 from four_dof_arm import Robot4DOF
 from four_dof_arm.trajectory import (
     CartesianTrajectory,
@@ -8,6 +10,19 @@ from four_dof_arm.trajectory import (
     MultiPointTrajectory,
     cubic_polynomial,
     quintic_polynomial,
+)
+from four_dof_arm.trajectory.cartesian import (
+    CartesianTrajectory as CartesianTrajectoryOwner,
+)
+from four_dof_arm.trajectory.joint import JointTrajectory as JointTrajectoryOwner
+from four_dof_arm.trajectory.multi_point import (
+    MultiPointTrajectory as MultiPointTrajectoryOwner,
+)
+from four_dof_arm.trajectory.polynomials import (
+    cubic_polynomial as cubic_polynomial_owner,
+)
+from four_dof_arm.trajectory.polynomials import (
+    quintic_polynomial as quintic_polynomial_owner,
 )
 
 
@@ -29,6 +44,21 @@ class StubRobot:
         self.targets.append(target.copy())
         self.seeds.append(q0.copy())
         return next(self.results)
+
+
+def test_trajectory_facade_preserves_public_exports():
+    expected = {
+        "cubic_polynomial": cubic_polynomial_owner,
+        "quintic_polynomial": quintic_polynomial_owner,
+        "JointTrajectory": JointTrajectoryOwner,
+        "CartesianTrajectory": CartesianTrajectoryOwner,
+        "MultiPointTrajectory": MultiPointTrajectoryOwner,
+    }
+
+    assert trajectory_facade.__all__ == list(expected)
+    for name, owner in expected.items():
+        assert getattr(trajectory_facade, name) is owner
+        assert getattr(four_dof_arm, name) is owner
 
 
 @pytest.mark.parametrize("polynomial", [cubic_polynomial, quintic_polynomial])

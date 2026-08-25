@@ -12,6 +12,9 @@ matplotlib.use("Agg")
 
 import matplotlib.pyplot as plt
 
+import four_dof_arm.visualize.animation as animation_module
+import four_dof_arm.visualize.arm as arm_module
+import four_dof_arm.visualize.plots as plots_module
 from four_dof_arm import Robot4DOF, demo, visualize
 from four_dof_arm.visualize import (
     animate_trajectory,
@@ -19,6 +22,27 @@ from four_dof_arm.visualize import (
     plot_joint_angles,
     plot_workspace,
 )
+
+
+def test_visualize_facade_exports_owner_functions() -> None:
+    assert visualize.__all__ == [
+        "plot_arm",
+        "animate_trajectory",
+        "plot_joint_angles",
+        "plot_workspace",
+    ]
+    assert visualize.plot_arm is plot_arm is arm_module.plot_arm
+    assert (
+        visualize.animate_trajectory
+        is animate_trajectory
+        is animation_module.animate_trajectory
+    )
+    assert (
+        visualize.plot_joint_angles
+        is plot_joint_angles
+        is plots_module.plot_joint_angles
+    )
+    assert visualize.plot_workspace is plot_workspace is plots_module.plot_workspace
 
 
 @pytest.fixture(autouse=True)
@@ -110,7 +134,11 @@ def test_animation_callbacks_reset_and_update_all_coordinates(monkeypatch) -> No
         captured.update(figure=figure, update=update, **kwargs)
         return animation_result
 
-    monkeypatch.setattr(visualize.animation, "FuncAnimation", capture_animation)
+    monkeypatch.setattr(
+        animation_module.mpl_animation,
+        "FuncAnimation",
+        capture_animation,
+    )
 
     robot = Robot4DOF()
     trajectory_q = np.array(

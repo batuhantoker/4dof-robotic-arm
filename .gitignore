@@ -9,14 +9,28 @@ codegen/
 
 # Python
 __pycache__/
-*.pyc
-*.pyo
+*.py[cod]
 *.egg-info/
 dist/
 build/
 .venv/
 venv/
 *.egg
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+.coverage.*
+coverage.xml
+htmlcov/
+
+# Generated Python outputs
+python/generated/
+python/arm_pose.png
+python/joint_trajectory.png
+python/workspace.png
+python/arm_physics_sim.mp4
+/arm_physics_sim.mp4
 
 # OS
 .DS_Store

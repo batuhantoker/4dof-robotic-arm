@@ -1,14 +1,21 @@
-# 4-DOF Robotic Arm — Kinematics, Simulation & Validated Physics
+# 4-DOF Robotic Arm - Kinematics and Simulation
 
 ![MATLAB](https://img.shields.io/badge/MATLAB-R2022a-blue?logo=mathworks)
 ![Simulink](https://img.shields.io/badge/Simulink-SimScape-orange?logo=mathworks)
-![MuJoCo](https://img.shields.io/badge/MuJoCo-3.6-purple)
+![MuJoCo](https://img.shields.io/badge/MuJoCo-simulation-purple)
 ![Python](https://img.shields.io/badge/Python-3.10+-green?logo=python)
 ![SolidWorks](https://img.shields.io/badge/SolidWorks-CAD-red)
 
-End-to-end study of a 4-DOF serial manipulator: symbolic kinematics (Kane's method), SimScape multibody dynamics, and a **validated MuJoCo physics simulation** with PD control and gravity compensation.
+End-to-end study of a 4-DOF serial manipulator: symbolic kinematics (Kane's
+method), Simscape multibody dynamics, a Python kinematics and trajectory
+package, and a MuJoCo model with PD control and gravity compensation.
 
-**FK validation: 0.000 mm error** across all test configurations — analytical kinematics match physics engine exactly.
+**FK cross-validation: 0.000 mm error** across the documented test
+configurations: the analytical implementation matches the MuJoCo kinematic
+chain.
+
+FK is cross-validated; MuJoCo dynamics use simplified inertial parameters and
+are not validated against CAD/Simscape dynamics.
 
 ![1_uHBulGzv38jcE_R2PtPH4Q](https://user-images.githubusercontent.com/55883119/210860480-249bc993-9c25-4c12-96b2-f342db412f1f.gif)
 
@@ -56,56 +63,88 @@ The matlab/Simulink SimScape Multibody model imports SolidWorks CAD geometry dir
 
 CAD parts (links 0–3) are modeled in SolidWorks and exported as STEP files for SimScape import.
 
-## MuJoCo Physics Simulation
+## MuJoCo Simulation
 
-A full physics simulation in [MuJoCo 3.6](https://mujoco.org/) validates the analytical kinematics against a rigid-body physics engine:
+The packaged [MuJoCo](https://mujoco.org/) model cross-validates analytical
+forward kinematics and provides a controlled dynamics demonstration:
 
 - **MJCF model** matching exact link parameters (Laz=55mm, Lax=50mm, Lb=100mm, Lt=90mm)
 - **PD joint control** with gravity compensation
 - **Quintic trajectory planning** for smooth joint-space motion
-- **FK cross-validation**: analytical forward kinematics vs. MuJoCo body positions — **0.000 mm error** across 7 test configurations
-- **Headless rendering** via EGL for CI/server environments
+- **FK cross-validation**: analytical forward kinematics vs. MuJoCo body positions - **0.000 mm error** across 7 test configurations
+- **Headless Linux rendering** via EGL when `MUJOCO_GL=egl` is set
 
 ```bash
-cd python && pip install mujoco numpy && python mujoco_sim.py
+uv sync --project python --extra simulation
+uv run --project python four-dof-arm-mujoco --validate-only
 ```
 
-Output: `arm_physics_sim.mp4` — rendered trajectory with real physics.
+To render a new video, install FFmpeg and pass both `--video` and the desired
+output path. On headless Linux, select the EGL backend as shown:
 
-See [`python/mujoco_model.xml`](python/mujoco_model.xml) for the MJCF model and [`python/mujoco_sim.py`](python/mujoco_sim.py) for the simulation driver.
+```bash
+mkdir -p python/generated
+MUJOCO_GL=egl uv run --project python four-dof-arm-mujoco --video \
+  --output python/generated/arm_physics_sim.mp4
+```
+
+Generated output under `python/generated/` is ignored. The committed reference
+render is [`simulations/arm_physics_sim.mp4`](simulations/arm_physics_sim.mp4).
+CI validates the simulation and smoke-checks the installed commands, but does
+not render video.
+See [`mujoco_model.xml`](python/src/four_dof_arm/mujoco_model.xml) for the MJCF
+model and [`mujoco_sim.py`](python/src/four_dof_arm/mujoco_sim.py) for the
+simulation driver.
 
 ## Python Implementation
 
-A standalone Python port provides forward/inverse kinematics, trajectory planning, and 3D visualization — no MATLAB license required. See [`python/README.md`](python/README.md) for quickstart.
+A packaged Python port provides forward/inverse kinematics, trajectory planning,
+and optional 3D visualization without requiring MATLAB. See
+[`python/README.md`](python/README.md) for the full API and development guide.
 
 Highlights:
 - Forward kinematics matching the AUTOLEV formulation exactly
-- Numerical inverse kinematics via Jacobian-based Newton-Raphson
+- Numerical inverse kinematics via damped least-squares
 - Cubic/quintic polynomial trajectory planning
 - Real-time 3D matplotlib visualization and workspace plotting
+
+All commands below are safe to run from the repository root:
+
+```bash
+uv sync --project python --extra visualization
+uv run --project python four-dof-arm-demo --output-dir python/generated
+```
+
+Optional groups are `visualization` for Matplotlib, `simulation` for MuJoCo,
+and `dev` for all runtime extras plus pytest/coverage, Ruff, mypy, and package
+build tools. Use `uv sync --project python --all-extras` for the complete
+environment.
 
 ## Repository Structure
 
 ```
-├── cad/                  # SolidWorks assembly and part files
-├── figures/             # Figures and diagrams
-├── kinematics/            # AUTOLEV Kane's method formulation
-│   └── 4DOF_kane.all     # Full symbolic kinematics source
-├── matlab/               # SimScape Multibody models
-│   ├── Montaj1.slx       # Position control simulation
-│   ├── Montaj1Hiz.slx    # Velocity analysis
-│   ├── Montaj1tork.slx   # Torque computation
-│   └── *.SLDPRT/STEP     # CAD geometry for SimScape
-├── python/               # Python implementation + MuJoCo simulation
-│   ├── robot.py          # Forward/inverse kinematics, Jacobian
-│   ├── trajectory.py     # Trajectory planning
-│   ├── visualize.py      # 3D visualization & animation
-│   ├── demo.py           # Demo script
-│   ├── mujoco_model.xml  # MJCF physics model
-│   ├── mujoco_sim.py     # MuJoCo simulation + FK validation
-│   ├── arm_physics_sim.mp4  # Rendered simulation output
-│   └── requirements.txt  # Dependencies
-├── simulations/        # Simulation results and data
+├── .github/workflows/python.yml  # Python 3.10/3.12 checks
+├── cad/                         # SolidWorks assembly and part files
+├── figures/                     # Figures and diagrams
+├── kinematics/
+│   └── 4DOF_kane.all            # AUTOLEV Kane's method formulation
+├── matlab/                      # Simscape Multibody models and CAD geometry
+├── python/                      # Installable Python project
+│   ├── pyproject.toml           # Package metadata and tool configuration
+│   ├── uv.lock                  # Reproducible dependency lock
+│   ├── README.md                # Python usage and development guide
+│   ├── src/four_dof_arm/
+│   │   ├── __init__.py          # Core public API
+│   │   ├── cli.py               # Dependency-light console wrappers
+│   │   ├── robot.py             # Forward/inverse kinematics and Jacobian
+│   │   ├── trajectory.py        # Trajectory planning
+│   │   ├── visualize.py         # Optional Matplotlib visualization
+│   │   ├── demo.py              # Visualization CLI
+│   │   ├── mujoco_sim.py        # Optional MuJoCo simulation CLI
+│   │   └── mujoco_model.xml     # Packaged MJCF model
+│   └── tests/                   # Python test suite
+├── simulations/
+│   └── arm_physics_sim.mp4      # Committed MuJoCo reference render
 └── README.md
 ```
 
@@ -117,4 +156,5 @@ Detailed derivation and results are documented in the accompanying article:
 
 ## License
 
-Academic/personal project. Feel free to reference with attribution.
+No software license has been selected. Choosing and adding one remains a
+project-owner decision.

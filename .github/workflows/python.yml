@@ -1,0 +1,106 @@
+name: Python
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  checks:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.10", "3.12"]
+
+    defaults:
+      run:
+        working-directory: python
+
+    env:
+      MPLBACKEND: Agg
+
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+      - uses: astral-sh/setup-uv@v6
+        with:
+          version: "0.12.5"
+          enable-cache: true
+          cache-dependency-glob: python/uv.lock
+
+      - name: Install dependencies
+        run: uv sync --locked --all-extras --python "${{ matrix.python-version }}"
+      - name: Ruff lint
+        run: uv run --no-sync ruff check .
+      - name: Ruff format
+        run: uv run --no-sync ruff format --check .
+      - name: Mypy
+        run: uv run --no-sync mypy
+      - name: Pytest
+        run: uv run --no-sync pytest --cov=four_dof_arm --cov-report=term-missing
+
+      - name: Build distributions
+        if: matrix.python-version == '3.12'
+        run: |
+          set -euo pipefail
+          uv run --no-sync python -m build
+          shopt -s nullglob
+          sdists=(dist/*.tar.gz)
+          wheels=(dist/*.whl)
+          [[ ${#sdists[@]} -eq 1 ]]
+          [[ ${#wheels[@]} -eq 1 ]]
+
+      - name: Install core wheel in a fresh environment
+        if: matrix.python-version == '3.12'
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+          wheels=(dist/*.whl)
+          [[ ${#wheels[@]} -eq 1 ]]
+          uv venv "$RUNNER_TEMP/four-dof-core" --python "${{ matrix.python-version }}"
+          uv pip install \
+            --python "$RUNNER_TEMP/four-dof-core/bin/python" \
+            "${wheels[0]}"
+
+      - name: Verify core-only wheel
+        if: matrix.python-version == '3.12'
+        run: |
+          set -euo pipefail
+          core_python="$RUNNER_TEMP/four-dof-core/bin/python"
+          "$core_python" - <<'PY'
+          import importlib.util
+          import sys
+          from importlib.resources import files
+
+          assert importlib.util.find_spec("matplotlib") is None
+          assert importlib.util.find_spec("mujoco") is None
+
+          import four_dof_arm
+
+          assert "matplotlib" not in sys.modules
+          assert "mujoco" not in sys.modules
+          model = files(four_dof_arm).joinpath("mujoco_model.xml")
+          assert model.is_file()
+          assert b"<mujoco" in model.read_bytes()
+          PY
+          "$RUNNER_TEMP/four-dof-core/bin/four-dof-arm-demo" --help
+          "$RUNNER_TEMP/four-dof-core/bin/four-dof-arm-mujoco" --help
+
+      - name: Install extras and smoke-check wheel commands
+        if: matrix.python-version == '3.12'
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+          wheels=(dist/*.whl)
+          [[ ${#wheels[@]} -eq 1 ]]
+          core_python="$RUNNER_TEMP/four-dof-core/bin/python"
+          uv pip install \
+            --python "$core_python" \
+            "${wheels[0]}[visualization,simulation]"
+          "$RUNNER_TEMP/four-dof-core/bin/four-dof-arm-demo" --seed 0
+          "$RUNNER_TEMP/four-dof-core/bin/four-dof-arm-mujoco" --validate-only

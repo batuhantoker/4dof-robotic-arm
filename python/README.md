@@ -53,11 +53,17 @@ MUJOCO_GL=egl four-dof-arm-mujoco --video --output arm_physics_sim.mp4
 The committed reference render is
 [`simulations/arm_physics_sim.mp4`](https://github.com/batuhantoker/4dof-robotic-arm/blob/main/simulations/arm_physics_sim.mp4).
 CI validates FK and smoke-checks both commands; it does not render video.
+The public MuJoCo API, focused implementation modules, and packaged MJCF model
+live under [`src/four_dof_arm/mujoco_sim/`](src/four_dof_arm/mujoco_sim/).
 
 ## Core API
 
 Importing `four_dof_arm` loads only NumPy-based functionality. It does not
 import Matplotlib or MuJoCo.
+
+The `robot`, `trajectory`, `visualize`, and `mujoco_sim` directories expose
+stable APIs through their `__init__.py` files while keeping implementation
+details in focused modules.
 
 ```python
 import numpy as np

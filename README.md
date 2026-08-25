@@ -92,9 +92,10 @@ Generated output under `python/generated/` is ignored. The committed reference
 render is [`simulations/arm_physics_sim.mp4`](simulations/arm_physics_sim.mp4).
 CI validates the simulation and smoke-checks the installed commands, but does
 not render video.
-See [`mujoco_model.xml`](python/src/four_dof_arm/mujoco_model.xml) for the MJCF
-model and [`mujoco_sim.py`](python/src/four_dof_arm/mujoco_sim.py) for the
-simulation driver.
+See [`mujoco_model.xml`](python/src/four_dof_arm/mujoco_sim/mujoco_model.xml)
+for the MJCF model and the
+[`mujoco_sim` package](python/src/four_dof_arm/mujoco_sim/) for the simulation
+implementation.
 
 ## Python Implementation
 
@@ -136,12 +137,31 @@ environment.
 │   ├── src/four_dof_arm/
 │   │   ├── __init__.py          # Core public API
 │   │   ├── cli.py               # Dependency-light console wrappers
-│   │   ├── robot.py             # Forward/inverse kinematics and Jacobian
-│   │   ├── trajectory.py        # Trajectory planning
-│   │   ├── visualize.py         # Optional Matplotlib visualization
 │   │   ├── demo.py              # Visualization CLI
-│   │   ├── mujoco_sim.py        # Optional MuJoCo simulation CLI
-│   │   └── mujoco_model.xml     # Packaged MJCF model
+│   │   ├── robot/               # Robot model facade and implementations
+│   │   │   ├── model.py         # Public Robot4DOF class
+│   │   │   ├── kinematics.py    # FK, joint positions, and Jacobians
+│   │   │   ├── inverse.py       # IK and workspace sampling
+│   │   │   └── validation.py    # Robot input validation
+│   │   ├── trajectory/          # Trajectory planning facade
+│   │   │   ├── polynomials.py   # Cubic and quintic interpolation
+│   │   │   ├── joint.py         # Joint-space trajectories
+│   │   │   ├── cartesian.py     # Cartesian trajectories with IK
+│   │   │   └── multi_point.py   # Via-point trajectories
+│   │   ├── visualize/           # Optional Matplotlib facade
+│   │   │   ├── arm.py           # Static arm rendering
+│   │   │   ├── animation.py     # Trajectory animation
+│   │   │   ├── plots.py         # Joint and workspace plots
+│   │   │   └── common.py        # Shared plotting helpers
+│   │   └── mujoco_sim/          # Optional MuJoCo simulation package
+│   │       ├── __init__.py      # Public simulation API
+│   │       ├── __main__.py      # python -m entry point
+│   │       ├── cli.py           # Simulation CLI orchestration
+│   │       ├── core.py          # ArmSim and model resource path
+│   │       ├── rendering.py     # Video rendering and FFmpeg lifecycle
+│   │       ├── timing.py        # Timing and interpolation helpers
+│   │       ├── validation.py    # Analytical FK validation
+│   │       └── mujoco_model.xml # Packaged MJCF model
 │   └── tests/                   # Python test suite
 ├── simulations/
 │   └── arm_physics_sim.mp4      # Committed MuJoCo reference render

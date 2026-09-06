@@ -121,6 +121,17 @@ and `dev` for all runtime extras plus pytest/coverage, Ruff, mypy, and package
 build tools. Use `uv sync --project python --all-extras` for the complete
 environment.
 
+### Configurable Serial Arms
+
+`serial-arm-analyze` adds JSON-defined, fixed-base revolute chains in SI units,
+separate from the legacy millimetre-based `Robot4DOF` API. It exports a normalized
+configuration, MJCF, reports, and trajectory/workspace CSVs with NumPy alone;
+optional extras enable MuJoCo tracking and PNG/GIF output without FFmpeg or
+OpenGL. Output directories must be new or empty. Contacts are disabled, and
+results are not collision-clearance, structural-stress, or hardware-safety
+validation. See the [serial-arm workflow](python/README.md#configurable-serial-arms)
+for the runnable example, configuration, scenario semantics, and limitations.
+
 ## Repository Structure
 
 ```

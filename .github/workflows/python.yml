@@ -90,6 +90,11 @@ jobs:
           PY
           "$RUNNER_TEMP/four-dof-core/bin/four-dof-arm-demo" --help
           "$RUNNER_TEMP/four-dof-core/bin/four-dof-arm-mujoco" --help
+          "$RUNNER_TEMP/four-dof-core/bin/serial-arm-analyze" --help
+          "$RUNNER_TEMP/four-dof-core/bin/serial-arm-analyze" \
+            examples/serial_arm/planar_2link.json \
+            --output-dir "$RUNNER_TEMP/serial-arm-core" \
+            --timestep 0.1 --workspace-samples 10
 
       - name: Install extras and smoke-check wheel commands
         if: matrix.python-version == '3.12'
@@ -104,3 +109,7 @@ jobs:
             "${wheels[0]}[visualization,simulation]"
           "$RUNNER_TEMP/four-dof-core/bin/four-dof-arm-demo" --seed 0
           "$RUNNER_TEMP/four-dof-core/bin/four-dof-arm-mujoco" --validate-only
+          "$RUNNER_TEMP/four-dof-core/bin/serial-arm-analyze" \
+            examples/serial_arm/spatial_6link.json \
+            --output-dir "$RUNNER_TEMP/serial-arm-simulation" \
+            --simulate --plots --timestep 0.01 --workspace-samples 10

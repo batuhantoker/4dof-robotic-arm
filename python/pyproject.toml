@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "four-dof-arm"
 version = "0.1.0"
-description = "Kinematics, trajectory planning, visualization, and MuJoCo simulation for a 4-DOF robotic arm"
+description = "Kinematics, trajectory planning, and MuJoCo simulation for 4-DOF and configurable serial arms"
 readme = "README.md"
 requires-python = ">=3.10"
 dependencies = [
@@ -32,6 +32,7 @@ dev = [
 [project.scripts]
 four-dof-arm-demo = "four_dof_arm.cli:demo"
 four-dof-arm-mujoco = "four_dof_arm.cli:mujoco"
+serial-arm-analyze = "four_dof_arm.serial_arm.cli:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]

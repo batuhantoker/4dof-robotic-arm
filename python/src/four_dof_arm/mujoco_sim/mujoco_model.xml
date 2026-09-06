@@ -56,7 +56,9 @@
           <body name="link2" pos="0.050 0 0">
             <joint name="q2" type="hinge" axis="1 0 0" range="-1.5708 1.5708"/>
             <!-- Upper arm: Lb = 100mm along x (in B-frame) -->
-            <geom type="capsule" fromto="0 0 0 0.100 0 0" size="0.008" mass="0.2" rgba="0.1 0.6 0.8 1"/>
+            <geom type="capsule" fromto="0 0 0 0.100 0 0" size="0.008" mass="0.2" rgba="0.1 0.6 0.8 1" contype="0" conaffinity="0"/>
+            <!-- Collision shapes leave clearance around the shared wrist pivot. -->
+            <geom name="upper_arm_collision" type="capsule" fromto="0 0 0 0.085 0 0" size="0.008" mass="0" rgba="0 0 0 0"/>
             
             <!-- Joint 3: Z-axis rotation (elbow yaw) — at end of upper arm -->
             <body name="link3" pos="0.100 0 0">
@@ -67,7 +69,8 @@
               <body name="link4" pos="0 0 0">
                 <joint name="q4" type="hinge" axis="1 0 0" range="-1.5708 1.5708"/>
                 <!-- Forearm: Lt = 90mm along z (in D-frame) -->
-                <geom type="capsule" fromto="0 0 0 0 0 0.090" size="0.006" mass="0.1" rgba="0.1 0.8 0.3 1"/>
+                <geom type="capsule" fromto="0 0 0 0 0 0.090" size="0.006" mass="0.1" rgba="0.1 0.8 0.3 1" contype="0" conaffinity="0"/>
+                <geom name="forearm_collision" type="capsule" fromto="0 0 0.015 0 0 0.090" size="0.006" mass="0" rgba="0 0 0 0"/>
                 
                 <!-- End effector site at tip -->
                 <site name="end_effector" pos="0 0 0.090" size="0.008" rgba="1 0 0 1"/>
@@ -83,6 +86,12 @@
       <geom type="sphere" size="0.008" rgba="1 0 0 0.5" contype="0" conaffinity="0"/>
     </body>
   </worldbody>
+
+  <contact>
+    <!-- The anchored column intentionally overlaps its mounting surfaces. -->
+    <exclude body1="world" body2="link1"/>
+    <exclude body1="base" body2="link1"/>
+  </contact>
   
   <actuator>
     <motor name="motor_q1" joint="q1" gear="5"/>

@@ -1,6 +1,9 @@
 from __future__ import annotations
 
+import io
+import os
 import sys
+import threading
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -62,7 +65,9 @@ def _write_custom_model(
 
 class _FakeVideoSim:
     def __init__(self, dt: float = 0.05) -> None:
-        self.model = object()
+        self.model = SimpleNamespace(
+            vis=SimpleNamespace(global_=SimpleNamespace(offwidth=640, offheight=480))
+        )
         self.data = SimpleNamespace(time=0.0)
         self.n_joints = 4
         self.dt = dt
@@ -78,7 +83,10 @@ class _VideoHarness:
         self.return_code = 0
         self.stderr = b""
         self.break_pipe = False
-        self.render_error: Exception | None = None
+        self.render_error: BaseException | None = None
+        self.events: list[str] = []
+        self.wait_timeouts = 0
+        self.cleanup_errors: dict[str, BaseException] = {}
         self.renderers: list[object] = []
         self.processes: list[object] = []
 
@@ -99,7 +107,10 @@ def video_harness(monkeypatch: pytest.MonkeyPatch) -> _VideoHarness:
             return len(data)
 
         def close(self) -> None:
+            harness.events.append("stdin.close")
             self.closed = True
+            if "stdin.close" in harness.cleanup_errors:
+                raise harness.cleanup_errors["stdin.close"]
 
     class FakeProcess:
         def __init__(
@@ -121,21 +132,37 @@ def video_harness(monkeypatch: pytest.MonkeyPatch) -> _VideoHarness:
             harness.processes.append(self)
 
         def wait(self, timeout: float | None = None) -> int:
+            harness.events.append("wait")
             self.wait_calls.append(timeout)
+            if harness.wait_timeouts:
+                harness.wait_timeouts -= 1
+                raise mujoco_rendering.subprocess.TimeoutExpired("ffmpeg", timeout)
+            if "wait" in harness.cleanup_errors:
+                raise harness.cleanup_errors["wait"]
             self.running = False
             return harness.return_code
 
         def poll(self) -> int | None:
+            if "poll" in harness.cleanup_errors:
+                raise harness.cleanup_errors["poll"]
             return None if self.running else harness.return_code
 
         def terminate(self) -> None:
+            harness.events.append("terminate")
+            if "terminate" in harness.cleanup_errors:
+                raise harness.cleanup_errors["terminate"]
             self.terminated = True
 
         def kill(self) -> None:
+            harness.events.append("kill")
+            if "kill" in harness.cleanup_errors:
+                raise harness.cleanup_errors["kill"]
             self.killed = True
 
     class FakeRenderer:
-        def __init__(self, _model: object, *, height: int, width: int) -> None:
+        def __init__(self, model: SimpleNamespace, *, height: int, width: int) -> None:
+            assert model.vis.global_.offwidth >= width
+            assert model.vis.global_.offheight >= height
             self.height = height
             self.width = width
             self.update_times: list[float] = []
@@ -151,6 +178,7 @@ def video_harness(monkeypatch: pytest.MonkeyPatch) -> _VideoHarness:
             return np.zeros((1, 1, 3), dtype=np.uint8)
 
         def close(self) -> None:
+            harness.events.append("renderer.close")
             self.closed = True
 
     monkeypatch.setattr(mujoco_rendering.shutil, "which", lambda _name: "/fake/ffmpeg")
@@ -219,6 +247,120 @@ def test_initial_derived_state_matches_analytical_fk(sim: ArmSim) -> None:
 
     np.testing.assert_allclose(sim.ee_pos, analytical_position / 1000.0, atol=1e-12)
     np.testing.assert_allclose(sim.ee_rotation, analytical_rotation, atol=1e-12)
+
+
+def test_home_pose_has_no_penetrating_joint_contacts(sim: ArmSim) -> None:
+    assert sim.data.ncon == 0
+
+
+@pytest.mark.parametrize(
+    ("q", "bodies"),
+    [
+        ([0.0, np.pi / 2, 0.0, np.pi / 2], ("world", "link4")),
+        ([0.0, 0.0, -np.pi / 2, np.pi / 2], ("shoulder_offset", "link4")),
+        ([0.0, 0.0, -np.pi / 2, np.pi / 2], ("link2", "link4")),
+    ],
+)
+def test_collision_exclusions_preserve_ground_and_nonadjacent_contacts(
+    sim: ArmSim, q: list[float], bodies: tuple[str, str]
+) -> None:
+    sim.reset(q)
+    expected = {sim.model.body(name).id for name in bodies}
+    assert any(
+        {int(sim.model.geom_bodyid[c.geom1]), int(sim.model.geom_bodyid[c.geom2])}
+        == expected
+        and c.dist < 0.0
+        for c in sim.data.contact
+    )
+
+
+def test_default_trajectory_tracking_stays_within_regression_bounds(
+    sim: ArmSim,
+) -> None:
+    trajectory = mujoco_cli.demo_trajectory()
+    record = sim.run_trajectory(trajectory.t, trajectory.q)
+    error = np.linalg.norm(record["q"] - record["target_q"], axis=1)
+
+    assert np.all(np.isfinite(record["q"]))
+    assert np.mean(error) < 0.11
+    assert np.max(error) < 0.27
+
+
+@pytest.mark.parametrize(
+    "q0", [np.zeros(3), np.zeros((1, 4)), [0.0, np.nan, 0.0, 0.0], [0.0] * 3 + [np.inf]]
+)
+def test_reset_rejects_invalid_input_without_mutating_state(
+    sim: ArmSim, q0: object
+) -> None:
+    sim.reset([0.1, -0.2, 0.3, -0.4])
+    sim.step(np.zeros(4))
+    fields = ("qpos", "qvel", "ctrl", "site_xpos", "site_xmat")
+    previous = [getattr(sim.data, field).copy() for field in fields]
+    previous_time = sim.data.time
+
+    with pytest.raises(ValueError):
+        sim.reset(q0)
+
+    assert sim.data.time == previous_time
+    for field, value in zip(fields, previous, strict=True):
+        np.testing.assert_array_equal(getattr(sim.data, field), value)
+
+
+def test_reset_copies_live_position_view_before_clearing_state(sim: ArmSim) -> None:
+    expected = np.array([0.1, -0.2, 0.3, -0.4])
+    sim.reset(expected)
+    sim.data.qvel[:] = 1.0
+    sim.data.time = 1.0
+
+    sim.reset(sim.data.qpos)
+
+    np.testing.assert_array_equal(sim.q, expected)
+    np.testing.assert_array_equal(sim.qd, np.zeros(4))
+    assert sim.data.time == 0.0
+    position, rotation = sim.robot.forward_kinematics(expected)
+    np.testing.assert_allclose(sim.ee_pos, position / 1000.0, atol=1e-12)
+    np.testing.assert_allclose(sim.ee_rotation, rotation, atol=1e-12)
+
+
+@pytest.mark.parametrize("via_model", [False, True])
+def test_changed_timestep_is_used_for_trajectory_and_settle(
+    sim: ArmSim, via_model: bool
+) -> None:
+    if via_model:
+        sim.model.opt.timestep = 0.01
+    else:
+        sim.dt = 0.01
+    assert sim.dt == sim.model.opt.timestep == 0.01
+
+    record = sim.run_trajectory([0.0, 0.02], np.zeros((2, 4)))
+    np.testing.assert_allclose(record["t"], [0.0, 0.01, 0.02], atol=1e-15)
+
+    start_time = sim.data.time
+    sim.settle(np.ones(4), duration=0.02, tol=1e-12)
+    assert sim.data.time - start_time == pytest.approx(0.02, abs=1e-15)
+
+
+@pytest.mark.parametrize("value", [0.0, -0.01, np.nan, np.inf])
+def test_timestep_setter_rejects_invalid_values_without_mutation(
+    sim: ArmSim, value: float
+) -> None:
+    previous = sim.dt
+    with pytest.raises(ValueError, match="timestep"):
+        sim.dt = value
+    assert sim.dt == previous
+
+
+def test_render_video_uses_changed_model_timestep(
+    sim: ArmSim, tmp_path: Path, video_harness: _VideoHarness
+) -> None:
+    sim.model.opt.timestep = 0.01
+    mujoco_rendering.render_video(
+        sim, [0.0, 0.03], np.zeros((2, 4)), tmp_path / "video.mp4", fps=100.0
+    )
+
+    assert sim.data.time == pytest.approx(0.03, abs=1e-15)
+    renderer = video_harness.renderers[0]
+    np.testing.assert_allclose(renderer.update_times, [0.0, 0.01, 0.02], atol=1e-15)
 
 
 def test_post_step_derived_state_matches_analytical_fk(sim: ArmSim) -> None:
@@ -576,6 +718,90 @@ def test_render_video_applies_piecewise_targets_through_final_simulation_step(
     assert fake_sim.data.time == pytest.approx(0.35, abs=1e-14)
 
 
+@pytest.mark.parametrize("dimension", ["width", "height"])
+@pytest.mark.parametrize("value", [1, 641, np.int64(1081), 0, -2, True, 640.0])
+def test_render_video_rejects_invalid_dimensions_without_side_effects(
+    tmp_path: Path,
+    video_harness: _VideoHarness,
+    monkeypatch: pytest.MonkeyPatch,
+    dimension: str,
+    value: object,
+) -> None:
+    fake_sim = _FakeVideoSim()
+    output = tmp_path / "video.mp4"
+
+    def unexpected_resource(*_args: object, **_kwargs: object) -> None:
+        pytest.fail("invalid dimensions must be rejected before acquiring resources")
+
+    monkeypatch.setattr(mujoco_rendering.shutil, "which", unexpected_resource)
+    monkeypatch.setattr(mujoco_rendering.mujoco, "MjvCamera", unexpected_resource)
+    monkeypatch.setattr(mujoco_rendering.tempfile, "TemporaryFile", unexpected_resource)
+
+    with pytest.raises(
+        ValueError, match=f"{dimension} must be a positive even integer"
+    ):
+        mujoco_rendering.render_video(
+            fake_sim,
+            [0.0, 0.1],
+            np.zeros((2, 4)),
+            output_path=output,
+            **{"width": 1920, "height": 1080, dimension: value},
+        )
+
+    assert not video_harness.renderers
+    assert not video_harness.processes
+    assert not output.exists()
+    assert not fake_sim.step_targets
+    assert fake_sim.data.time == 0.0
+    assert vars(fake_sim.model.vis.global_) == {"offwidth": 640, "offheight": 480}
+
+
+@pytest.mark.parametrize("initial_size", [(640, 480), (2048, 480), (640, 1200)])
+def test_render_video_grows_offscreen_buffer_before_renderer_and_never_shrinks(
+    tmp_path: Path, video_harness: _VideoHarness, initial_size: tuple[int, int]
+) -> None:
+    fake_sim = _FakeVideoSim()
+    settings = fake_sim.model.vis.global_
+    settings.offwidth, settings.offheight = initial_size
+
+    for width, height in [(1920, 1080), (640, 480)]:
+        mujoco_rendering.render_video(
+            fake_sim,
+            [0.0, 0.1],
+            np.zeros((2, 4)),
+            output_path=tmp_path / "video.mp4",
+            width=width,
+            height=height,
+        )
+        assert settings.offwidth == max(initial_size[0], 1920)
+        assert settings.offheight == max(initial_size[1], 1080)
+
+    assert len(video_harness.renderers) == 2
+
+
+def test_render_video_closes_renderer_when_startup_print_fails(
+    tmp_path: Path,
+    video_harness: _VideoHarness,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def broken_print(*_args: object) -> None:
+        raise BrokenPipeError("stdout closed")
+
+    monkeypatch.setattr(mujoco_rendering, "print", broken_print, raising=False)
+
+    with pytest.raises(BrokenPipeError, match="stdout closed"):
+        mujoco_rendering.render_video(
+            _FakeVideoSim(),
+            [0.0, 0.1],
+            np.zeros((2, 4)),
+            output_path=tmp_path / "video.mp4",
+        )
+
+    assert len(video_harness.renderers) == 1
+    assert not video_harness.processes
+    assert video_harness.events == ["renderer.close"]
+
+
 def test_render_video_reports_missing_ffmpeg_before_allocating_resources(
     tmp_path: Path,
     video_harness: _VideoHarness,
@@ -618,10 +844,13 @@ def test_render_video_reports_ffmpeg_nonzero_and_closes_resources(
     assert renderer.closed  # type: ignore[attr-defined]
 
 
+@pytest.mark.parametrize("failure", ["write", "close"])
 def test_render_video_reports_broken_pipe_and_closes_resources(
-    tmp_path: Path, video_harness: _VideoHarness
+    tmp_path: Path, video_harness: _VideoHarness, failure: str
 ) -> None:
-    video_harness.break_pipe = True
+    video_harness.break_pipe = failure == "write"
+    if failure == "close":
+        video_harness.cleanup_errors["stdin.close"] = BrokenPipeError()
     video_harness.return_code = 1
     video_harness.stderr = b"pipe closed"
 
@@ -641,12 +870,18 @@ def test_render_video_reports_broken_pipe_and_closes_resources(
     assert renderer.closed  # type: ignore[attr-defined]
 
 
-def test_render_video_terminates_process_when_rendering_fails(
-    tmp_path: Path, video_harness: _VideoHarness
+@pytest.mark.parametrize("error", [RuntimeError("render failed"), KeyboardInterrupt()])
+@pytest.mark.parametrize("wait_timeouts", [0, 1])
+def test_render_video_terminates_process_before_closing_stdin_when_rendering_fails(
+    tmp_path: Path,
+    video_harness: _VideoHarness,
+    error: BaseException,
+    wait_timeouts: int,
 ) -> None:
-    video_harness.render_error = RuntimeError("render failed")
+    video_harness.render_error = error
+    video_harness.wait_timeouts = wait_timeouts
 
-    with pytest.raises(RuntimeError, match="render failed"):
+    with pytest.raises(type(error)) as raised:
         mujoco_rendering.render_video(
             _FakeVideoSim(),
             np.array([0.0, 0.1]),
@@ -655,12 +890,142 @@ def test_render_video_terminates_process_when_rendering_fails(
             fps=10.0,
         )
 
+    assert raised.value is error
     process = video_harness.processes[0]
     renderer = video_harness.renderers[0]
     assert process.stdin.closed  # type: ignore[attr-defined]
     assert process.terminated  # type: ignore[attr-defined]
-    assert process.wait_calls == [5]  # type: ignore[attr-defined]
+    assert process.wait_calls == [5] * (wait_timeouts + 1)  # type: ignore[attr-defined]
+    assert process.killed == bool(wait_timeouts)  # type: ignore[attr-defined]
     assert renderer.closed  # type: ignore[attr-defined]
+    expected_events = ["terminate", "wait"]
+    if wait_timeouts:
+        expected_events += ["kill", "wait"]
+    assert video_harness.events == expected_events + ["stdin.close", "renderer.close"]
+
+
+@pytest.mark.parametrize(
+    "failure", ["poll", "terminate", "wait", "kill", "stdin.close"]
+)
+def test_render_video_closes_renderer_even_when_process_cleanup_fails(
+    tmp_path: Path, video_harness: _VideoHarness, failure: str
+) -> None:
+    video_harness.render_error = KeyboardInterrupt()
+    video_harness.cleanup_errors[failure] = OSError("cleanup failed")
+    video_harness.wait_timeouts = int(failure == "kill")
+
+    with pytest.raises(OSError, match="cleanup failed"):
+        mujoco_rendering.render_video(
+            _FakeVideoSim(),
+            [0.0, 0.1],
+            np.zeros((2, 4)),
+            output_path=tmp_path / "video.mp4",
+        )
+
+    assert video_harness.renderers[0].closed  # type: ignore[attr-defined]
+    assert video_harness.events[-1] == "renderer.close"
+    if failure != "stdin.close":
+        assert "stdin.close" not in video_harness.events
+
+
+def test_render_video_bounds_wait_after_kill_and_still_closes_renderer(
+    tmp_path: Path, video_harness: _VideoHarness
+) -> None:
+    video_harness.render_error = KeyboardInterrupt()
+    video_harness.wait_timeouts = 2
+
+    with pytest.raises(mujoco_rendering.subprocess.TimeoutExpired):
+        mujoco_rendering.render_video(
+            _FakeVideoSim(),
+            [0.0, 0.1],
+            np.zeros((2, 4)),
+            output_path=tmp_path / "video.mp4",
+        )
+
+    assert video_harness.processes[0].wait_calls == [5, 5]  # type: ignore[attr-defined]
+    assert video_harness.events == [
+        "terminate",
+        "wait",
+        "kill",
+        "wait",
+        "renderer.close",
+    ]
+
+
+@pytest.mark.skipif(os.name != "posix", reason="requires a nonblocking POSIX pipe")
+def test_render_video_cancellation_with_full_os_pipe_is_bounded(
+    tmp_path: Path,
+    video_harness: _VideoHarness,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    read_fd, write_fd = os.pipe()
+    stdin = io.BufferedWriter(io.FileIO(write_fd, "wb"))
+    reader_closed = threading.Event()
+    watchdog_fired = threading.Event()
+    reader_lock = threading.Lock()
+
+    def close_reader() -> None:
+        with reader_lock:
+            if not reader_closed.is_set():
+                os.close(read_fd)
+                reader_closed.set()
+
+    def unblock_on_timeout() -> None:
+        watchdog_fired.set()
+        close_reader()
+
+    fake_popen = mujoco_rendering.subprocess.Popen
+
+    def process_with_full_pipe(*args: object, **kwargs: object) -> object:
+        process = fake_popen(*args, **kwargs)
+        process.stdin = stdin
+        original_wait = process.wait
+
+        def wait(timeout: float | None = None) -> int:
+            result = original_wait(timeout=timeout)
+            close_reader()
+            return result
+
+        monkeypatch.setattr(process, "wait", wait)
+        return process
+
+    watchdog = threading.Timer(5.0, unblock_on_timeout)
+    try:
+        os.set_blocking(write_fd, False)
+        with pytest.raises(BlockingIOError):
+            while True:
+                os.write(write_fd, b"x" * 4096)
+        os.set_blocking(write_fd, True)
+        # Leave buffered bytes that close would flush into the full pipe.
+        stdin.write(b"pending frame")
+        video_harness.render_error = KeyboardInterrupt()
+        monkeypatch.setattr(
+            mujoco_rendering.subprocess, "Popen", process_with_full_pipe
+        )
+        watchdog.start()
+
+        with pytest.raises(KeyboardInterrupt):
+            mujoco_rendering.render_video(
+                _FakeVideoSim(),
+                [0.0, 0.1],
+                np.zeros((2, 4)),
+                output_path=tmp_path / "video.mp4",
+            )
+
+        assert not watchdog_fired.is_set(), (
+            "stdin.close blocked before encoder shutdown"
+        )
+        assert stdin.closed
+        assert video_harness.events == ["terminate", "wait", "renderer.close"]
+    finally:
+        watchdog.cancel()
+        if watchdog.ident is not None:
+            watchdog.join(timeout=6.0)
+        close_reader()
+        try:
+            stdin.close()
+        except BrokenPipeError:
+            pass
 
 
 def test_main_returns_failure_status_when_fk_validation_fails(

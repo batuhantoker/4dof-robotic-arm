@@ -114,10 +114,20 @@ class ArmSim:
 
     def reset(self, q0: ArrayLike | None = None) -> None:
         """Reset simulation to the initial configuration."""
+        initial_q = None if q0 is None else self._validate_target(q0).copy()
         mujoco.mj_resetData(self.model, self.data)
-        if q0 is not None:
-            self.data.qpos[: self.n_joints] = self._validate_target(q0)
+        if initial_q is not None:
+            self.data.qpos[: self.n_joints] = initial_q
         mujoco.mj_forward(self.model, self.data)
+
+    @property
+    def dt(self) -> float:
+        """Current model timestep in seconds; change between simulation calls."""
+        return _positive_finite_float(self.model.opt.timestep, "timestep")
+
+    @dt.setter
+    def dt(self, value: float) -> None:
+        self.model.opt.timestep = _positive_finite_float(value, "timestep")
 
     @property
     def q(self) -> NDArray[np.float64]:

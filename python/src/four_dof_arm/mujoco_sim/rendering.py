@@ -36,8 +36,9 @@ def render_video(
             isinstance(value, bool)
             or not isinstance(value, (int, np.integer))
             or value <= 0
+            or value % 2 != 0
         ):
-            raise ValueError(f"{name} must be a positive integer")
+            raise ValueError(f"{name} must be a positive even integer")
     if not isinstance(output_path, (str, Path)) or not str(output_path):
         raise ValueError("output_path must be a non-empty path")
 
@@ -81,12 +82,13 @@ def render_video(
     camera.distance = 0.45
     camera.lookat[:] = [0.08, 0.0, 0.08]
 
-    renderer = mujoco.Renderer(sim.model, height=height, width=width)
+    sim.model.vis.global_.offwidth = max(sim.model.vis.global_.offwidth, width)
+    sim.model.vis.global_.offheight = max(sim.model.vis.global_.offheight, height)
     proc = None
-    start_time = float(sim.data.time)
-    print(f"Rendering {frame_count} frames to {output}...")
-
+    renderer = mujoco.Renderer(sim.model, height=height, width=width)
     try:
+        start_time = float(sim.data.time)
+        print(f"Rendering {frame_count} frames to {output}...")
         with tempfile.TemporaryFile() as stderr_file:
             proc = subprocess.Popen(
                 ffmpeg_cmd,
@@ -116,11 +118,10 @@ def render_video(
                     steps_taken += 1
             except BrokenPipeError:
                 broken_pipe = True
-            finally:
-                try:
-                    proc.stdin.close()
-                except BrokenPipeError:
-                    broken_pipe = True
+            try:
+                proc.stdin.close()
+            except BrokenPipeError:
+                broken_pipe = True
 
             return_code = proc.wait()
             stderr_file.seek(0)
@@ -129,19 +130,23 @@ def render_video(
                 detail = ffmpeg_error or "no error output"
                 raise RuntimeError(f"FFmpeg failed with status {return_code}: {detail}")
     finally:
-        if proc is not None and proc.poll() is None:
-            if proc.stdin is not None and not proc.stdin.closed:
-                try:
-                    proc.stdin.close()
-                except BrokenPipeError:
-                    pass
-            proc.terminate()
-            try:
-                proc.wait(timeout=5)
-            except subprocess.TimeoutExpired:
-                proc.kill()
-                proc.wait()
-        renderer.close()
+        try:
+            if proc is not None:
+                # Stop the reader before close can flush a blocked, buffered pipe.
+                if proc.poll() is None:
+                    proc.terminate()
+                    try:
+                        proc.wait(timeout=5)
+                    except subprocess.TimeoutExpired:
+                        proc.kill()
+                        proc.wait(timeout=5)
+                if proc.stdin is not None and not proc.stdin.closed:
+                    try:
+                        proc.stdin.close()
+                    except BrokenPipeError:
+                        pass
+        finally:
+            renderer.close()
 
     size_mb = output.stat().st_size / (1024 * 1024)
     simulated_duration = float(sim.data.time) - start_time

@@ -113,6 +113,28 @@ def test_inverse_kinematics_clips_initial_seed_to_hard_limits() -> None:
     np.testing.assert_allclose(q, expected, atol=1e-12)
 
 
+@pytest.mark.parametrize(
+    "method_name", ["inverse_kinematics", "inverse_kinematics_multi"]
+)
+def test_inverse_kinematics_preserves_small_damping_at_singularity(
+    method_name: str,
+) -> None:
+    robot = Robot4DOF()
+    seed = np.array([0.38, 0.0, 0.0, 0.0])
+    target = robot.forward_kinematics(seed + [0.0, 0.0, 0.01, 0.01])[0]
+    solver = getattr(robot, method_name)
+
+    q, success, error = solver(target, q0=seed, damping=1e-6)
+
+    assert success
+    assert error < 1e-4
+    assert np.all(np.isfinite(q))
+    assert np.all(q >= robot.joint_limits[:, 0])
+    assert np.all(q <= robot.joint_limits[:, 1])
+    np.testing.assert_allclose(robot.forward_kinematics(q)[0], target, atol=1e-4)
+    np.testing.assert_array_equal(seed, [0.38, 0.0, 0.0, 0.0])
+
+
 def test_inverse_kinematics_keeps_failed_result_within_limits() -> None:
     robot = Robot4DOF()
 

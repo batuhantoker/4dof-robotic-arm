@@ -4,6 +4,7 @@ import numpy as np
 from numpy.typing import NDArray
 
 from ..robot import Robot4DOF
+from ..robot.validation import finite_scalar
 from .validation import _finite_vector, _point_count, _positive_duration
 
 _PERIODIC_JOINTS = (0, 2)
@@ -47,7 +48,15 @@ class CartesianTrajectory:
     n_points : int
         Number of waypoints.
     q_seed : array of shape (4,) or None
-        Initial IK seed for first point.
+        Initial IK guess, reused until the first accepted solution. The first
+        accepted solution is not constrained to be near this seed.
+    max_joint_step : float
+        Positive finite maximum absolute change in radians for every joint
+        relative to the last accepted solution (default 0.5). Bounded periodic
+        equivalents are considered first. Larger jumps are marked unsuccessful
+        and do not update the IK seed; rejected candidates remain in q with
+        ik_success=False. No subdivision or retry is performed. This is a
+        per-waypoint continuity bound, not a velocity or collision guarantee.
     """
 
     def __init__(
@@ -58,12 +67,16 @@ class CartesianTrajectory:
         duration: float = 2.0,
         n_points: int = 100,
         q_seed: NDArray[np.float64] | None = None,
+        max_joint_step: float = 0.5,
     ) -> None:
         self.robot = robot
         self.p_start = _finite_vector(p_start, (3,), "p_start")
         self.p_end = _finite_vector(p_end, (3,), "p_end")
         self.duration = _positive_duration(duration)
         self.n_points = _point_count(n_points, "n_points")
+        self.max_joint_step = finite_scalar(
+            max_joint_step, "max_joint_step", positive=True
+        )
         seed = (
             np.zeros(4, dtype=np.float64)
             if q_seed is None
@@ -131,6 +144,9 @@ class CartesianTrajectory:
                     valid_result = False
                 else:
                     q_sol = continuous
+                    valid_result = bool(
+                        np.all(np.abs(q_sol - q_current) <= self.max_joint_step)
+                    )
 
             self.q[i] = q_sol
             self.ik_success[i] = valid_result

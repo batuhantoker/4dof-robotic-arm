@@ -55,8 +55,11 @@ def inverse_kinematics(
             return q, True, error_norm
 
         jacobian = robot.jacobian_analytical(q)
-        damped_product = jacobian @ jacobian.T + (damping**2) * np.eye(3)
-        step = jacobian.T @ np.linalg.solve(damped_product, error_vector)
+        u, singular_values, vh = np.linalg.svd(jacobian, full_matrices=False)
+        # Avoid losing small damping when forming the normal equations.
+        scale = np.hypot(singular_values, damping)
+        gains = (singular_values / scale) / scale
+        step = vh.T @ (gains * (u.T @ error_vector))
         step = np.clip(step, -0.5, 0.5)
 
         next_q = robot._limit_configuration(q + step)

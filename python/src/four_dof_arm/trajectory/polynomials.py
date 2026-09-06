@@ -30,16 +30,22 @@ def cubic_polynomial(
     -------
     q, qd : arrays
         Position and velocity profiles.
+
+    Raises
+    ------
+    ValueError
+        If inputs are invalid or output profiles are not finite in float64.
     """
     q_start, q_end, t, T = _polynomial_inputs(q_start, q_end, t, T)
 
-    a0 = q_start
-    a1 = 0.0
-    a2 = 3.0 * (q_end - q_start) / T**2
-    a3 = -2.0 * (q_end - q_start) / T**3
+    with np.errstate(over="ignore", invalid="ignore", divide="ignore"):
+        u = t / T
+        dq = q_end - q_start
+        q = q_start + dq * (u**2 * (3.0 - 2.0 * u))
+        qd = dq * (6.0 * u * (1.0 - u)) / T
 
-    q = a0 + a1 * t + a2 * t**2 + a3 * t**3
-    qd = a1 + 2.0 * a2 * t + 3.0 * a3 * t**2
+    if not all(np.all(np.isfinite(profile)) for profile in (q, qd)):
+        raise ValueError("polynomial output must contain only finite values")
     return q, qd
 
 
@@ -58,16 +64,21 @@ def quintic_polynomial(
     -------
     q, qd, qdd : arrays
         Position, velocity, and acceleration profiles.
+
+    Raises
+    ------
+    ValueError
+        If inputs are invalid or output profiles are not finite in float64.
     """
     q_start, q_end, t, T = _polynomial_inputs(q_start, q_end, t, T)
 
-    dq = q_end - q_start
-    a0 = q_start
-    a3 = 10.0 * dq / T**3
-    a4 = -15.0 * dq / T**4
-    a5 = 6.0 * dq / T**5
+    with np.errstate(over="ignore", invalid="ignore", divide="ignore"):
+        u = t / T
+        dq = q_end - q_start
+        q = q_start + dq * (u**3 * (10.0 + u * (-15.0 + 6.0 * u)))
+        qd = dq * (30.0 * u**2 * (1.0 - u) ** 2) / T
+        qdd = dq * (60.0 * u * (1.0 - u) * (1.0 - 2.0 * u)) / T / T
 
-    q = a0 + a3 * t**3 + a4 * t**4 + a5 * t**5
-    qd = 3.0 * a3 * t**2 + 4.0 * a4 * t**3 + 5.0 * a5 * t**4
-    qdd = 6.0 * a3 * t + 12.0 * a4 * t**2 + 20.0 * a5 * t**3
+    if not all(np.all(np.isfinite(profile)) for profile in (q, qd, qdd)):
+        raise ValueError("polynomial output must contain only finite values")
     return q, qd, qdd

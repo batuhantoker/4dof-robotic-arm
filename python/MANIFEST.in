@@ -1,0 +1,1 @@
+recursive-include examples/serial_arm *.json

@@ -1,0 +1,46 @@
+{
+  "name": "spatial_3link",
+  "units": "SI",
+  "base": [0.0, 0.0, 0.05],
+  "tool": [0.04, 0.0, 0.0],
+  "payload_mass": 0.1,
+  "links": [
+    {
+      "name": "base_yaw",
+      "axis": [0.0, 0.0, 1.0],
+      "offset": [0.0, 0.0, 0.12],
+      "mass": 0.7,
+      "radius": 0.025,
+      "limits": [-3.141592653589793, 3.141592653589793],
+      "damping": 0.08,
+      "armature": 0.015,
+      "torque_limit": 10.0,
+      "kp": 40.0,
+      "kd": 4.0
+    },
+    {
+      "name": "shoulder",
+      "axis": [0.0, 1.0, 0.0],
+      "offset": [0.28, 0.0, 0.0],
+      "mass": 0.6,
+      "radius": 0.02,
+      "limits": [-1.5707963267948966, 1.5707963267948966],
+      "damping": 0.08,
+      "armature": 0.015,
+      "torque_limit": 12.0,
+      "kp": 50.0,
+      "kd": 5.0
+    },
+    {
+      "name": "elbow",
+      "axis": [0.0, 1.0, 0.0],
+      "offset": [0.22, 0.0, 0.0],
+      "mass": 0.35,
+      "radius": 0.015,
+      "limits": [-2.4, 2.4],
+      "torque_limit": 6.0,
+      "kp": 30.0,
+      "kd": 3.0
+    }
+  ]
+}

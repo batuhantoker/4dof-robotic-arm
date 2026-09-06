@@ -7,12 +7,14 @@ import subprocess
 import sys
 import xml.etree.ElementTree as ET
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any
+from unittest.mock import Mock
 
 import numpy as np
 import pytest
 
-from four_dof_arm.serial_arm import SerialArm, cli
+from four_dof_arm.serial_arm import SerialArm, cli, rendering
 from four_dof_arm.serial_arm.analysis import analyze
 
 
@@ -275,6 +277,142 @@ def test_missing_optional_dependencies_are_actionable(
     assert not output.exists()
 
 
+def test_3d_options_forward_actual_simulation_record(
+    tmp_path: Path, config_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    pytest.importorskip("mujoco")
+    scenario = tmp_path / "scenario.json"
+    scenario.write_text(
+        json.dumps({"duration": 0.02, "waypoints": [[0], [0.1]]}), encoding="utf-8"
+    )
+    results = []
+
+    def capture_analysis(arm: SerialArm, *args: Any, **kwargs: Any) -> Any:
+        assert kwargs["simulate"] is True
+        result = analyze(arm, *args, **kwargs)
+        results.append((arm, result[1]))
+        return result
+
+    monkeypatch.setattr(cli, "analyze", capture_analysis)
+    monkeypatch.setattr(cli.sys, "platform", "linux")
+    monkeypatch.setattr(cli, "import_module", Mock(return_value=SimpleNamespace()))
+    render, show = Mock(), Mock()
+    monkeypatch.setattr(rendering, "render_3d", render)
+    monkeypatch.setattr(rendering, "show_3d", show)
+    output = tmp_path / "nested" / "analysis"
+    assert (
+        cli.main(
+            [
+                str(config_path),
+                "--scenario",
+                str(scenario),
+                "--output-dir",
+                str(output),
+                "--workspace-samples",
+                "2",
+                "--simulate",
+                "--render-3d",
+                "--viewer",
+            ]
+        )
+        == 0
+    )
+    assert len(results) == 1
+    arm, record = results[0]
+    assert "torque" in record
+    assert not np.array_equal(record["q"], record["target_q"])
+    render.assert_called_once_with(arm, record, output)
+    show.assert_called_once_with(arm, record)
+    assert render.call_args.args[1] is record
+    assert show.call_args.args[1] is record
+
+
+@pytest.mark.parametrize(
+    ("flag", "dependency"),
+    [("--render-3d", "mujoco"), ("--render-3d", "PIL.Image"), ("--viewer", "mujoco")],
+)
+def test_3d_dependency_preflight_leaves_no_output(
+    tmp_path: Path,
+    config_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    flag: str,
+    dependency: str,
+) -> None:
+    def blocked_import(name: str) -> Any:
+        if name == dependency:
+            raise ModuleNotFoundError(f"No module named {name!r}", name=name)
+        return SimpleNamespace()
+
+    monkeypatch.setattr(cli, "import_module", blocked_import)
+    analysis = Mock(side_effect=AssertionError("preflight must precede analysis"))
+    monkeypatch.setattr(cli, "analyze", analysis)
+    output = tmp_path / "analysis"
+    assert cli.main([str(config_path), "--output-dir", str(output), flag]) == 2
+    analysis.assert_not_called()
+    assert not output.exists()
+    captured = capsys.readouterr()
+    assert "python -m pip install 'four-dof-arm[simulation]'" in captured.err
+    assert "Traceback" not in captured.err
+    assert captured.out == ""
+
+
+def test_viewer_on_macos_requires_mjpython_before_output(
+    tmp_path: Path,
+    config_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    monkeypatch.setattr(cli.sys, "platform", "darwin")
+    monkeypatch.setattr(
+        cli, "import_module", Mock(return_value=SimpleNamespace(_MJPYTHON=None))
+    )
+    analysis = Mock(side_effect=AssertionError("preflight must precede analysis"))
+    monkeypatch.setattr(cli, "analyze", analysis)
+    output = tmp_path / "analysis"
+    assert cli.main([str(config_path), "--output-dir", str(output), "--viewer"]) == 2
+    analysis.assert_not_called()
+    assert not output.exists()
+    captured = capsys.readouterr()
+    assert "requires mjpython, not python" in captured.err
+    assert "mjpython -m four_dof_arm.serial_arm" in captured.err
+    assert "--viewer --output-dir NEW_DIRECTORY" in captured.err
+    assert "Traceback" not in captured.err
+    assert captured.out == ""
+
+
+def test_render_3d_exception_is_reported_without_traceback(
+    tmp_path: Path,
+    config_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    monkeypatch.setattr(cli, "import_module", Mock(return_value=SimpleNamespace()))
+    render = Mock(side_effect=RuntimeError("OpenGL context unavailable"))
+    monkeypatch.setattr(rendering, "render_3d", render)
+    output = tmp_path / "analysis"
+    assert (
+        cli.main(
+            [
+                str(config_path),
+                "--output-dir",
+                str(output),
+                "--render-3d",
+                "--timestep",
+                "1",
+                "--workspace-samples",
+                "2",
+            ]
+        )
+        == 2
+    )
+    render.assert_called_once()
+    captured = capsys.readouterr()
+    assert "serial-arm-analyze: OpenGL context unavailable" in captured.err
+    assert "Traceback" not in captured.err
+    assert "Analysis written" not in captured.out
+
+
 @pytest.mark.parametrize("help_only", [True, False], ids=["help", "analysis"])
 def test_cli_without_optional_imports_in_fresh_process(
     tmp_path: Path, config_path: Path, help_only: bool
@@ -283,8 +421,14 @@ def test_cli_without_optional_imports_in_fresh_process(
 import builtins
 import sys
 original_import = builtins.__import__
+optional = {'mujoco', 'matplotlib', 'PIL', 'scipy'}
+class BlockOptional:
+    def find_spec(self, fullname, path=None, target=None):
+        if fullname.split('.')[0] in optional:
+            raise AssertionError('Unexpected optional import: ' + fullname)
+sys.meta_path.insert(0, BlockOptional())
 def core_only(name, *args, **kwargs):
-    if name.split('.')[0] in {'mujoco', 'matplotlib', 'PIL', 'scipy'}:
+    if name.split('.')[0] in optional:
         raise AssertionError('Unexpected optional import: ' + name)
     return original_import(name, *args, **kwargs)
 builtins.__import__ = core_only
@@ -313,3 +457,6 @@ raise SystemExit(main(sys.argv[1:]))
     assert result.returncode == 0, result.stderr
     assert result.stderr == ""
     assert ("usage:" if help_only else "prescribed_kinematics") in result.stdout
+    if help_only:
+        assert "--render-3d" in result.stdout
+        assert "--viewer" in result.stdout

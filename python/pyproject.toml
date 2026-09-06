@@ -18,6 +18,7 @@ visualization = [
 ]
 simulation = [
     "mujoco>=3.1",
+    "Pillow>=9",
 ]
 dev = [
     "build>=1.2",

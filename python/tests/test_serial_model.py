@@ -476,7 +476,7 @@ assert "<mujoco" in arm.to_mjcf()
     )
 
 
-@pytest.mark.parametrize("n", [1, 2, 6])
+@pytest.mark.parametrize("n", [1, 2, 6, 12])
 @pytest.mark.parametrize("payload_mass", [0, 0.3])
 def test_generated_mujoco_matches_fk_jacobian_and_physical_properties(
     n: int,

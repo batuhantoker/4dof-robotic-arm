@@ -1,0 +1,120 @@
+{
+  "name": "spatial_12link",
+  "units": "SI",
+  "base": [0.0, 0.0, 0.05],
+  "tool": [0.04, 0.0, 0.0],
+  "payload_mass": 0.05,
+  "links": [
+    {
+      "name": "joint_01",
+      "axis": [0.0, 0.0, 1.0],
+      "offset": [0.0, 0.0, 0.16],
+      "mass": 0.5,
+      "radius": 0.025,
+      "torque_limit": 25.0,
+      "kp": 100.0,
+      "kd": 10.0
+    },
+    {
+      "name": "joint_02",
+      "axis": [0.0, 1.0, 0.0],
+      "offset": [0.1, 0.0, 0.0],
+      "mass": 0.12,
+      "limits": [-1.5, 1.5],
+      "torque_limit": 25.0,
+      "kp": 100.0,
+      "kd": 10.0
+    },
+    {
+      "name": "joint_03",
+      "axis": [0.0, 0.0, 1.0],
+      "offset": [0.1, 0.0, 0.0],
+      "mass": 0.12,
+      "torque_limit": 20.0,
+      "kp": 80.0,
+      "kd": 8.0
+    },
+    {
+      "name": "joint_04",
+      "axis": [0.0, 1.0, 0.0],
+      "offset": [0.1, 0.0, 0.0],
+      "mass": 0.12,
+      "limits": [-1.5, 1.5],
+      "torque_limit": 20.0,
+      "kp": 80.0,
+      "kd": 8.0
+    },
+    {
+      "name": "joint_05",
+      "axis": [0.0, 0.0, 1.0],
+      "offset": [0.1, 0.0, 0.0],
+      "mass": 0.12,
+      "torque_limit": 15.0,
+      "kp": 60.0,
+      "kd": 6.0
+    },
+    {
+      "name": "joint_06",
+      "axis": [0.0, 1.0, 0.0],
+      "offset": [0.1, 0.0, 0.0],
+      "mass": 0.12,
+      "limits": [-1.5, 1.5],
+      "torque_limit": 15.0,
+      "kp": 60.0,
+      "kd": 6.0
+    },
+    {
+      "name": "joint_07",
+      "axis": [0.0, 0.0, 1.0],
+      "offset": [0.1, 0.0, 0.0],
+      "mass": 0.12,
+      "torque_limit": 10.0,
+      "kp": 40.0,
+      "kd": 4.0
+    },
+    {
+      "name": "joint_08",
+      "axis": [0.0, 1.0, 0.0],
+      "offset": [0.1, 0.0, 0.0],
+      "mass": 0.12,
+      "limits": [-1.5, 1.5],
+      "torque_limit": 10.0,
+      "kp": 40.0,
+      "kd": 4.0
+    },
+    {
+      "name": "joint_09",
+      "axis": [0.0, 0.0, 1.0],
+      "offset": [0.1, 0.0, 0.0],
+      "mass": 0.12,
+      "torque_limit": 6.0,
+      "kp": 30.0,
+      "kd": 3.0
+    },
+    {
+      "name": "joint_10",
+      "axis": [0.0, 1.0, 0.0],
+      "offset": [0.1, 0.0, 0.0],
+      "mass": 0.12,
+      "limits": [-1.5, 1.5],
+      "torque_limit": 6.0,
+      "kp": 30.0,
+      "kd": 3.0
+    },
+    {
+      "name": "joint_11",
+      "axis": [0.0, 0.0, 1.0],
+      "offset": [0.1, 0.0, 0.0],
+      "mass": 0.12,
+      "torque_limit": 4.0
+    },
+    {
+      "name": "joint_12",
+      "axis": [0.0, 1.0, 0.0],
+      "offset": [0.1, 0.0, 0.0],
+      "mass": 0.12,
+      "limits": [-1.5, 1.5],
+      "torque_limit": 4.0
+    }
+  ]
+}

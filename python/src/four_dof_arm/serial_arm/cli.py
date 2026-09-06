@@ -6,6 +6,7 @@ import argparse
 import csv
 import json
 import sys
+from importlib import import_module
 from pathlib import Path
 
 import numpy as np
@@ -35,7 +36,17 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument(
         "--animate",
         action="store_true",
-        help="write a GIF and overview PNG (no FFmpeg)",
+        help="write a line-animation GIF and overview PNG (no FFmpeg)",
+    )
+    parser.add_argument(
+        "--render-3d",
+        action="store_true",
+        help="render solid-link MuJoCo PNG/GIF playback (requires OpenGL)",
+    )
+    parser.add_argument(
+        "--viewer",
+        action="store_true",
+        help="open interactive MuJoCo playback; use mjpython on macOS",
     )
     parser.add_argument(
         "--timestep",
@@ -65,6 +76,21 @@ def main(argv: list[str] | None = None) -> int:
             from .visualization import render_analysis
 
             render = render_analysis
+        if args.render_3d or args.viewer:
+            import_module("mujoco")
+        if args.render_3d:
+            import_module("PIL.Image")
+        if args.viewer:
+            viewer_module = import_module("mujoco.viewer")
+            if (
+                sys.platform == "darwin"
+                and getattr(viewer_module, "_MJPYTHON", None) is None
+            ):
+                raise ValueError(
+                    "--viewer on macOS requires mjpython, not python: "
+                    "mjpython -m four_dof_arm.serial_arm CONFIG --simulate --viewer "
+                    "--output-dir NEW_DIRECTORY"
+                )
         report, record, workspace = analyze(
             arm,
             scenario,
@@ -117,12 +143,23 @@ def main(argv: list[str] | None = None) -> int:
         )
         if render is not None:
             render(arm, record, workspace, args.output_dir, animate=args.animate)
+        if args.render_3d:
+            from .rendering import render_3d
+
+            render_3d(arm, record, args.output_dir)
+        if args.viewer:
+            from .rendering import show_3d
+
+            print(
+                "Opening recorded 3D playback. Drag to orbit; scroll to zoom. Close the window to exit."
+            )
+            show_3d(arm, record)
     except ModuleNotFoundError as error:
         dependency = (error.name or "").split(".")[0]
         extras = {
             "mujoco": "simulation",
             "matplotlib": "visualization",
-            "PIL": "visualization",
+            "PIL": "simulation" if args.render_3d else "visualization",
         }
         if dependency not in extras:
             raise
@@ -132,7 +169,7 @@ def main(argv: list[str] | None = None) -> int:
             file=sys.stderr,
         )
         return 2
-    except (ValueError, OSError) as error:
+    except (ValueError, OSError, RuntimeError) as error:
         print(f"serial-arm-analyze: {error}", file=sys.stderr)
         return 2
     print(f"{arm.name}: {arm.n_joints} joints, {report['mode']}")

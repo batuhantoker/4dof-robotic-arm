@@ -126,8 +126,10 @@ environment.
 `serial-arm-analyze` adds JSON-defined, fixed-base revolute chains in SI units,
 separate from the legacy millimetre-based `Robot4DOF` API. It exports a normalized
 configuration, MJCF, reports, and trajectory/workspace CSVs with NumPy alone;
-optional extras enable MuJoCo tracking and PNG/GIF output without FFmpeg or
-OpenGL. Output directories must be new or empty. Contacts are disabled, and
+optional extras enable MuJoCo tracking, solid-link 3D playback, and PNG/GIF
+output without FFmpeg. Only MuJoCo rendering/playback requires OpenGL; the
+Matplotlib plots and line animations do not. Output directories must be new or
+empty. Contacts are disabled, and
 results are not collision-clearance, structural-stress, or hardware-safety
 validation. See the [serial-arm workflow](python/README.md#configurable-serial-arms)
 for the runnable example, configuration, scenario semantics, and limitations.

@@ -18,6 +18,7 @@ PRESETS = Path(__file__).resolve().parents[1] / "examples" / "serial_arm"
         ("planar_2link", 2, (0.55, 0.0, 0.1)),
         ("spatial_3link", 3, (0.54, 0.0, 0.17)),
         ("spatial_6link", 6, (0.59, 0.0, 0.17)),
+        ("spatial_12link", 12, (1.14, 0.0, 0.21)),
         ("original_4dof", 4, (0.15, 0.0, 0.145)),
     ],
 )

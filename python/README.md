@@ -20,7 +20,7 @@ Install the extra for each optional command or API:
 | Extra | Contents | Package install |
 |---|---|---|
 | `visualization` | Matplotlib plots and animation | `python -m pip install ".[visualization]"` |
-| `simulation` | MuJoCo validation, dynamics, and rendering | `python -m pip install ".[simulation]"` |
+| `simulation` | MuJoCo validation, dynamics, and Pillow rendering | `python -m pip install ".[simulation]"` |
 
 A local wheel path can be used in place of `.`. The two legacy console commands
 support `--help` with a core-only installation and report the required extra
@@ -87,12 +87,11 @@ uv run --project python serial-arm-analyze python/examples/serial_arm/spatial_3l
 
 For an installed package, use `serial-arm-analyze` directly with your JSON paths
 and install extras as described under [Install](#install).
-Without `--simulate`, `--plots`, or `--animate`, the CLI requires only NumPy,
+Without simulation or visualization flags, the CLI requires only NumPy,
 including MJCF export. `--simulate` needs the `simulation` extra; `--plots` and
 `--animate` need `visualization`. `--plots` writes only the overview PNG as its
-visual output; `--animate` writes both the overview and GIF. Neither FFmpeg nor
-OpenGL is needed for this workflow. The generated `model.xml` can also be
-inspected separately in a MuJoCo viewer.
+visual output; `--animate` writes both the overview and a 3D line-animation GIF.
+These Matplotlib outputs need neither FFmpeg nor OpenGL.
 
 `--output-dir` is required and must be **new or empty**; existing files are not
 overwritten. Outputs are:
@@ -105,6 +104,7 @@ overwritten. Outputs are:
 | `trajectory.csv` | Time, joint/tool motion and references; torques when simulated |
 | `workspace.csv` | Sampled tool positions in metres |
 | `overview.png`, `motion.gif` | Optional overview and animation, respectively |
+| `simulation_3d.png`, `simulation_3d.gif`, `scene.xml` | Solid-link render and styled scene with `--render-3d` |
 
 Joint CSV headers use `joint_name.field_unit`, for example `shoulder.q_rad`.
 
@@ -138,9 +138,46 @@ massless offset in the final frame; positive `payload_mass` adds a sphere at the
 tool tip. Zero-length links are allowed and use spheres instead of capsules.
 
 [Example configurations](examples/serial_arm/) include planar two-link, spatial
-three- and six-link arms, and `original_4dof.json`. The original preset matches
-legacy FK and the position Jacobian after millimetre-to-metre conversion, **not
-the legacy physical model**.
+three-, six-, and twelve-link arms, and `original_4dof.json`. The original preset
+matches legacy FK and the position Jacobian after millimetre-to-metre conversion,
+**not the legacy physical model**.
+
+The twelve-link preset alternates yaw and pitch joints, with eleven 10 cm
+segments above a rotating base and a 50 g payload. Generate its default motion
+without a separate scenario file:
+
+```bash
+uv run --project python serial-arm-analyze python/examples/serial_arm/spatial_12link.json \
+  --output-dir python/generated/serial-12link --simulate --animate
+```
+
+### Solid-Link 3D Playback
+
+For shaded capsule geometry, joint markers, and lighting instead of line plots:
+
+```bash
+uv run --project python serial-arm-analyze python/examples/serial_arm/spatial_12link.json \
+  --output-dir python/generated/serial-12link-3d --simulate --render-3d
+```
+
+`--render-3d` needs the `simulation` extra and an OpenGL backend, but no FFmpeg or
+Matplotlib. On headless Linux, prefix the command with `MUJOCO_GL=egl`.
+The PNG shows a bent pose; the GIF plays at 20 fps. Rendered geometry follows the
+recorded joint states, not a second physics simulation. Without `--simulate`,
+it is labeled kinematic playback. The floor and base support are visual only;
+the floor lies below the recorded motion and is not a collision surface.
+
+For a native window with mouse orbit and zoom, use `--viewer` instead of
+`--render-3d`. On macOS, launch with MuJoCo's `mjpython` interpreter:
+
+```bash
+uv run --project python mjpython -m four_dof_arm.serial_arm \
+  python/examples/serial_arm/spatial_12link.json \
+  --output-dir python/generated/serial-12link-viewer --simulate --viewer
+```
+
+On Linux/Windows, the regular `serial-arm-analyze` command supports `--viewer`.
+Playback loops until the window closes; it is not live interactive control.
 
 ```python
 from four_dof_arm.serial_arm import SerialArm

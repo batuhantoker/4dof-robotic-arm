@@ -539,6 +539,7 @@ dev = [
 ]
 simulation = [
     { name = "mujoco" },
+    { name = "pillow" },
 ]
 visualization = [
     { name = "matplotlib", version = "3.10.9", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.11'" },
@@ -554,6 +555,7 @@ requires-dist = [
     { name = "mujoco", marker = "extra == 'simulation'", specifier = ">=3.1" },
     { name = "mypy", marker = "extra == 'dev'", specifier = ">=1.11" },
     { name = "numpy", specifier = ">=1.24" },
+    { name = "pillow", marker = "extra == 'simulation'", specifier = ">=9" },
     { name = "pytest", marker = "extra == 'dev'", specifier = ">=8" },
     { name = "pytest-cov", marker = "extra == 'dev'", specifier = ">=5" },
     { name = "ruff", marker = "extra == 'dev'", specifier = ">=0.12.5" },
